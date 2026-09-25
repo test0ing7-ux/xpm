@@ -157,7 +157,7 @@ app.get('/download/:filename', async (req, res) => {
     pkg.save();
     
     res.set('Content-Type', 'application/gzip');
-    res.set('Content-Disposition', \`attachment; filename="\${req.params.filename}"\`);
+    res.set('Content-Disposition', `attachment; filename="${req.params.filename}"`);
     res.send(pkg.tarball);
 });
 
@@ -174,7 +174,7 @@ app.get('/packages', async (req, res) => {
 
 // --- WEB UI (PROFESSIONAL VERCEL/STRIPE AESTHETIC) ---
 
-const getLayout = (content, user) => \`
+const getLayout = (content, user) => `
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -208,23 +208,23 @@ const getLayout = (content, user) => \`
             </div>
 
             <div class="flex items-center gap-4">
-                \${user ? \`
+                ${user ? `
                     <div class="flex items-center gap-3">
-                        <img src="\${user.avatarUrl}" class="w-8 h-8 rounded-full border border-gray-200 shadow-sm">
-                        <span class="text-sm font-medium hidden sm:block">\${user.displayName}</span>
+                        <img src="${user.avatarUrl}" class="w-8 h-8 rounded-full border border-gray-200 shadow-sm">
+                        <span class="text-sm font-medium hidden sm:block">${user.displayName}</span>
                         <a href="/logout" class="text-gray-500 hover:text-black text-sm font-medium transition-colors ml-2">Log out</a>
                     </div>
-                \` : \`
+                ` : `
                     <a href="/auth/google" class="text-gray-600 hover:text-black font-medium text-sm transition-colors">Sign in</a>
                     <a href="/auth/google" class="bg-black hover:bg-gray-800 text-white font-medium py-2 px-4 text-sm rounded-full shadow-md hover:shadow-lg transition-all">Sign up</a>
-                \`}
+                `}
             </div>
         </div>
     </nav>
 
     <!-- Main Content -->
     <main class="flex-1 mt-16 flex flex-col">
-        \${content}
+        ${content}
     </main>
 
     <!-- Footer -->
@@ -237,43 +237,43 @@ const getLayout = (content, user) => \`
     </footer>
 </body>
 </html>
-\`;
+`;
 
 app.get('/', async (req, res) => {
     const packages = await Package.find().populate('author', 'displayName avatarUrl').sort({ downloads: -1 });
 
-    const packageCards = packages.map(pkg => \`
-        <a href="/package/\${pkg.name}" class="group block bg-white border border-gray-200 rounded-2xl p-6 hover:shadow-xl hover:border-gray-300 transition-all duration-300 transform hover:-translate-y-1">
+    const packageCards = packages.map(pkg => `
+        <a href="/package/${pkg.name}" class="group block bg-white border border-gray-200 rounded-2xl p-6 hover:shadow-xl hover:border-gray-300 transition-all duration-300 transform hover:-translate-y-1">
             <div class="flex justify-between items-start mb-4">
-                <h3 class="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">\${pkg.name}</h3>
-                <span class="bg-gray-100 text-gray-600 text-xs font-semibold px-2.5 py-1 rounded-full font-mono">v\${pkg.version}</span>
+                <h3 class="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">${pkg.name}</h3>
+                <span class="bg-gray-100 text-gray-600 text-xs font-semibold px-2.5 py-1 rounded-full font-mono">v${pkg.version}</span>
             </div>
-            <p class="text-gray-500 text-sm mb-6 line-clamp-2">\${pkg.description || 'A powerful CLI tool built for the modern Windows ecosystem.'}</p>
+            <p class="text-gray-500 text-sm mb-6 line-clamp-2">${pkg.description || 'A powerful CLI tool built for the modern Windows ecosystem.'}</p>
             <div class="flex items-center justify-between mt-auto pt-4 border-t border-gray-100">
                 <div class="flex items-center gap-2">
-                    <img src="\${pkg.author?.avatarUrl || ''}" class="w-6 h-6 rounded-full border border-gray-200">
-                    <span class="text-xs font-medium text-gray-600">\${pkg.author?.displayName || 'Unknown'}</span>
+                    <img src="${pkg.author?.avatarUrl || ''}" class="w-6 h-6 rounded-full border border-gray-200">
+                    <span class="text-xs font-medium text-gray-600">${pkg.author?.displayName || 'Unknown'}</span>
                 </div>
                 <div class="flex items-center gap-1 text-gray-400 text-xs font-medium">
                     <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                    \${pkg.downloads}
+                    ${pkg.downloads}
                 </div>
             </div>
         </a>
-    \`).join('') || '<div class="col-span-full text-center py-20 text-gray-400 font-medium">No packages published yet. Be the first!</div>';
+    `).join('') || '<div class="col-span-full text-center py-20 text-gray-400 font-medium">No packages published yet. Be the first!</div>';
 
     let dashboard = '';
     if (req.user) {
-        dashboard = \`
+        dashboard = `
             <div class="max-w-7xl mx-auto px-6 mb-12">
                 <div class="bg-black rounded-3xl p-8 md:p-10 text-white shadow-2xl relative overflow-hidden">
                     <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full blur-3xl opacity-20 -mr-20 -mt-20 pointer-events-none"></div>
-                    <h2 class="text-2xl font-bold mb-2 relative z-10">Welcome back, \${req.user.displayName.split(' ')[0]}</h2>
+                    <h2 class="text-2xl font-bold mb-2 relative z-10">Welcome back, ${req.user.displayName.split(' ')[0]}</h2>
                     <p class="text-gray-400 mb-6 max-w-xl relative z-10">Use your secret CLI token to publish packages directly from your terminal. Treat this token like a password.</p>
                     
                     <div class="flex flex-col sm:flex-row gap-3 relative z-10">
                         <div class="relative flex-1 max-w-md">
-                            <input type="password" id="cliToken" readonly value="\${req.user.cliToken}" class="w-full bg-gray-900 border border-gray-700 text-gray-300 text-sm font-mono p-3 pl-4 rounded-xl focus:outline-none focus:border-gray-500">
+                            <input type="password" id="cliToken" readonly value="${req.user.cliToken}" class="w-full bg-gray-900 border border-gray-700 text-gray-300 text-sm font-mono p-3 pl-4 rounded-xl focus:outline-none focus:border-gray-500">
                         </div>
                         <button onclick="
                             const el = document.getElementById('cliToken'); 
@@ -288,11 +288,11 @@ app.get('/', async (req, res) => {
                     </div>
                 </div>
             </div>
-        \`;
+        `;
     }
 
-    const content = \`
-        \${req.user ? '' : \`
+    const content = `
+        ${req.user ? '' : `
         <div class="pt-24 pb-16 px-6 text-center relative overflow-hidden">
             <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-gradient-to-r from-blue-400/20 to-purple-500/20 blur-[100px] rounded-full pointer-events-none"></div>
             <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 relative z-10 gradient-text">
@@ -310,9 +310,9 @@ app.get('/', async (req, res) => {
                 </div>
             </div>
         </div>
-        \`}
+        `}
 
-        \${dashboard}
+        ${dashboard}
 
         <div class="max-w-7xl mx-auto px-6 py-12 w-full">
             <div class="flex items-center justify-between mb-8">
@@ -320,10 +320,10 @@ app.get('/', async (req, res) => {
                 <a href="#" class="text-sm font-semibold text-blue-600 hover:text-blue-800">View all &rarr;</a>
             </div>
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
-                \${packageCards}
+                ${packageCards}
             </div>
         </div>
-    \`;
+    `;
 
     res.send(getLayout(content, req.user));
 });
@@ -332,12 +332,12 @@ app.get('/package/:name', async (req, res) => {
     const pkg = await Package.findOne({ name: req.params.name }).populate('author');
     if (!pkg) return res.status(404).send('Package not found');
     
-    const content = \`
+    const content = `
         <div class="bg-white border-b border-gray-200 pt-12 pb-8">
             <div class="max-w-7xl mx-auto px-6">
                 <div class="flex items-center gap-3 mb-2">
-                    <h1 class="text-3xl font-extrabold tracking-tight text-gray-900">\${pkg.name}</h1>
-                    <span class="bg-blue-100 text-blue-700 text-sm font-bold px-3 py-1 rounded-full font-mono">v\${pkg.version}</span>
+                    <h1 class="text-3xl font-extrabold tracking-tight text-gray-900">${pkg.name}</h1>
+                    <span class="bg-blue-100 text-blue-700 text-sm font-bold px-3 py-1 rounded-full font-mono">v${pkg.version}</span>
                 </div>
                 <p class="text-gray-500 text-lg mb-6">A powerful executable distributed via XPM.</p>
                 
@@ -357,8 +357,8 @@ app.get('/package/:name', async (req, res) => {
             <div class="w-full lg:w-80 shrink-0">
                 <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm sticky top-24">
                     <h3 class="font-bold text-gray-900 mb-3">Install</h3>
-                    <div class="flex items-center justify-between border border-gray-200 bg-gray-50 rounded-xl p-3 mb-6 hover:border-gray-300 transition-colors cursor-text group" onclick="navigator.clipboard.writeText('xpm install \${pkg.name}');">
-                        <code class="text-sm font-mono text-gray-700">xpm install \${pkg.name}</code>
+                    <div class="flex items-center justify-between border border-gray-200 bg-gray-50 rounded-xl p-3 mb-6 hover:border-gray-300 transition-colors cursor-text group" onclick="navigator.clipboard.writeText('xpm install ${pkg.name}');">
+                        <code class="text-sm font-mono text-gray-700">xpm install ${pkg.name}</code>
                         <div class="bg-white border border-gray-200 p-1.5 rounded-md group-hover:shadow-sm">
                             <svg class="w-4 h-4 text-gray-400 group-hover:text-black cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                         </div>
@@ -369,14 +369,14 @@ app.get('/package/:name', async (req, res) => {
                             <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Weekly Downloads</h3>
                             <div class="flex items-center gap-2">
                                 <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
-                                <p class="text-2xl font-bold text-gray-900">\${pkg.downloads}</p>
+                                <p class="text-2xl font-bold text-gray-900">${pkg.downloads}</p>
                             </div>
                         </div>
                         
                         <div class="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4">
                             <div>
                                 <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Version</h3>
-                                <p class="text-sm font-bold text-gray-900">\${pkg.version}</p>
+                                <p class="text-sm font-bold text-gray-900">${pkg.version}</p>
                             </div>
                             <div>
                                 <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">License</h3>
@@ -387,8 +387,8 @@ app.get('/package/:name', async (req, res) => {
                         <div class="border-t border-gray-100 pt-4">
                             <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Publisher</h3>
                             <div class="flex items-center gap-3">
-                                <img src="\${pkg.author?.avatarUrl || ''}" class="w-10 h-10 rounded-full border border-gray-200">
-                                <span class="text-sm font-bold text-gray-900">\${pkg.author?.displayName || 'Unknown'}</span>
+                                <img src="${pkg.author?.avatarUrl || ''}" class="w-10 h-10 rounded-full border border-gray-200">
+                                <span class="text-sm font-bold text-gray-900">${pkg.author?.displayName || 'Unknown'}</span>
                             </div>
                         </div>
                     </div>
@@ -399,7 +399,7 @@ app.get('/package/:name', async (req, res) => {
         <script>
             document.getElementById('readme').innerHTML = marked.parse(${JSON.stringify(pkg.readme || '# ' + pkg.name + '\\n\\nNo README provided.')});
         </script>
-    \`;
+    `;
 
     res.send(getLayout(content, req.user));
 });
