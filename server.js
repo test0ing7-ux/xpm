@@ -1,49 +1,42 @@
 require('dotenv').config();
 const express = require('express');
-const multer = require('multer');
-const path = require('path');
 const fs = require('fs');
-const cors = require('cors');
+const path = require('path');
+const multer = require('multer');
 const mongoose = require('mongoose');
-const session = require('express-session');
 const passport = require('passport');
 const GoogleStrategy = require('passport-google-oauth20').Strategy;
-const crypto = require('crypto');
+const session = require('express-session');
+const cors = require('cors');
 
 const User = require('./models/User');
 const Package = require('./models/Package');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const REGISTRY_DIR = path.join(__dirname, 'registry_data');
+const PORT = process.env.PORT || 8080;
 
-if (!fs.existsSync(REGISTRY_DIR)) fs.mkdirSync(REGISTRY_DIR, { recursive: true });
+app.use(cors());
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 // --- MONGODB CONNECTION ---
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('✅ Connected to MongoDB Atlas'))
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
 
-// --- MIDDLEWARE ---
-app.use(cors());
-app.use(express.json());
+// --- SESSION & PASSPORT SETUP ---
 app.use(session({
-    secret: process.env.SESSION_SECRET || 'xpm_secret',
+    secret: process.env.SESSION_SECRET || 'xpm_secret_key_123',
     resave: false,
     saveUninitialized: false
 }));
 app.use(passport.initialize());
 app.use(passport.session());
 
-// --- PASSPORT GOOGLE AUTH ---
-const callbackUrl = process.env.RAILWAY_STATIC_URL 
-    ? `https://${process.env.RAILWAY_STATIC_URL}/auth/google/callback` 
-    : 'http://localhost:3000/auth/google/callback';
-
 passport.use(new GoogleStrategy({
     clientID: process.env.GOOGLE_CLIENT_ID,
     clientSecret: process.env.GOOGLE_CLIENT_SECRET,
-    callbackURL: callbackUrl
+    callbackURL: "/auth/google/callback"
 }, async (accessToken, refreshToken, profile, done) => {
     try {
         let user = await User.findOne({ googleId: profile.id });
@@ -52,8 +45,7 @@ passport.use(new GoogleStrategy({
                 googleId: profile.id,
                 email: profile.emails[0].value,
                 displayName: profile.displayName,
-                avatarUrl: profile.photos[0].value,
-                cliToken: crypto.randomBytes(16).toString('hex')
+                avatarUrl: profile.photos[0].value
             });
         }
         return done(null, user);
@@ -97,268 +89,319 @@ app.get('/whoami', async (req, res) => {
     res.json({ username: user.displayName, email: user.email });
 });
 
-// --- MULTER SETUP (FOR PACKAGE UPLOADS) ---
-const storage = multer.diskStorage({
-    destination: (req, file, cb) => cb(null, REGISTRY_DIR),
-    filename: (req, file, cb) => cb(null, file.originalname)
-});
-const upload = multer({ storage });
+// --- MULTER SETUP (MEMORY STORAGE FOR STATELESS RAILWAY DEPLOYS) ---
+const storage = multer.memoryStorage();
+const upload = multer({ storage: storage });
 
 // --- API ROUTES ---
 
 // Publish endpoint (Requires CLI Token)
 app.post('/publish', upload.single('package'), async (req, res) => {
     try {
-        // 1. Auth check
         const authHeader = req.headers.authorization;
         if (!authHeader || !authHeader.startsWith('Bearer ')) {
-            fs.unlinkSync(req.file.path); // delete uploaded file
             return res.status(401).json({ error: 'Unauthorized. Please login to the CLI using your token.' });
         }
         
         const token = authHeader.split(' ')[1];
         const user = await User.findOne({ cliToken: token });
         if (!user) {
-            fs.unlinkSync(req.file.path);
             return res.status(401).json({ error: 'Invalid CLI Token.' });
         }
 
-        // 2. Parse filename (e.g. godsplan-3.0.2.tgz)
         const filename = req.file.originalname;
         const match = filename.match(/^(.*)-(\d+\.\d+\.\d+)\.tgz$/);
-        if (!match) {
-            fs.unlinkSync(req.file.path);
-            return res.status(400).json({ error: 'Invalid package filename format.' });
-        }
+        if (!match) return res.status(400).json({ error: 'Invalid package filename format.' });
 
         const pkgName = match[1];
         const pkgVersion = match[2];
 
-        // 3. Unique Name / Ownership Check
         let pkg = await Package.findOne({ name: pkgName });
         if (pkg) {
             if (pkg.author.toString() !== user._id.toString()) {
-                fs.unlinkSync(req.file.path);
                 return res.status(403).json({ error: `Package name '${pkgName}' is already taken by another user.` });
             }
-            // Update existing package
             pkg.version = pkgVersion;
             pkg.filename = filename;
+            pkg.tarball = req.file.buffer;
             if (req.body.readme) pkg.readme = req.body.readme;
             await pkg.save();
         } else {
-            // Create new package
             await Package.create({
                 name: pkgName,
                 version: pkgVersion,
                 author: user._id,
                 filename: filename,
+                tarball: req.file.buffer,
                 readme: req.body.readme || ''
             });
         }
 
         res.json({ message: `Package ${pkgName}@${pkgVersion} published successfully!` });
     } catch (err) {
-        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        console.error(err);
         res.status(500).json({ error: 'Server error' });
     }
 });
 
 // Download package
 app.get('/download/:filename', async (req, res) => {
-    const filePath = path.join(REGISTRY_DIR, req.params.filename);
-    if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Package not found' });
-    
-    // Increment download count safely in background
     const match = req.params.filename.match(/^(.*)-(\d+\.\d+\.\d+)\.tgz$/);
-    if (match) {
-        Package.findOneAndUpdate({ name: match[1] }, { $inc: { downloads: 1 } }).exec();
-    }
+    if (!match) return res.status(400).send('Invalid filename format');
     
-    res.download(filePath);
+    const pkg = await Package.findOne({ name: match[1] });
+    if (!pkg || !pkg.tarball) return res.status(404).json({ error: 'Package not found' });
+    
+    // Increment downloads stat
+    pkg.downloads += 1;
+    pkg.save();
+    
+    res.set('Content-Type', 'application/gzip');
+    res.set('Content-Disposition', \`attachment; filename="\${req.params.filename}"\`);
+    res.send(pkg.tarball);
 });
 
 // List packages (For CLI resolution)
-app.get('/packages', (req, res) => {
-    fs.readdir(REGISTRY_DIR, (err, files) => {
-        if (err) return res.status(500).json({ error: 'Failed to list packages' });
-        const tgzFiles = files.filter(f => f.endsWith('.tgz'));
+app.get('/packages', async (req, res) => {
+    try {
+        const pkgs = await Package.find({}, 'filename');
+        const tgzFiles = pkgs.map(p => p.filename).filter(Boolean);
         res.json({ packages: tgzFiles });
-    });
+    } catch(e) {
+        res.status(500).json({ error: 'Failed to list packages' });
+    }
 });
 
-// --- WEB UI (NPM REPLICA) ---
+// --- WEB UI (PROFESSIONAL VERCEL/STRIPE AESTHETIC) ---
+
+const getLayout = (content, user) => \`
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>XPM - The Windows Package Manager</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css">
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #fafafa; }
+        .glass-nav { background: rgba(255, 255, 255, 0.8); backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); }
+        .gradient-text { background-clip: text; -webkit-background-clip: text; -webkit-text-fill-color: transparent; background-image: linear-gradient(90deg, #000 0%, #666 100%); }
+    </style>
+</head>
+<body class="text-gray-900 antialiased min-h-screen flex flex-col">
+    <!-- Navbar -->
+    <nav class="glass-nav fixed top-0 w-full z-50 border-b border-gray-200/60 transition-all duration-300">
+        <div class="max-w-7xl mx-auto px-6 h-16 flex items-center justify-between">
+            <a href="/" class="text-2xl font-extrabold tracking-tight flex items-center gap-2">
+                <div class="w-8 h-8 bg-black text-white rounded-lg flex items-center justify-center text-sm shadow-md">X</div>
+                XPM
+            </a>
+            
+            <div class="hidden md:flex flex-1 max-w-lg mx-8 relative group">
+                <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                    <svg class="w-5 h-5 text-gray-400 group-focus-within:text-black transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                </div>
+                <input type="text" placeholder="Search for packages..." class="block w-full pl-10 pr-3 py-2 border border-gray-200 rounded-full bg-gray-50/50 text-sm placeholder-gray-400 focus:outline-none focus:bg-white focus:border-gray-300 focus:ring-4 focus:ring-gray-100 transition-all">
+            </div>
+
+            <div class="flex items-center gap-4">
+                \${user ? \`
+                    <div class="flex items-center gap-3">
+                        <img src="\${user.avatarUrl}" class="w-8 h-8 rounded-full border border-gray-200 shadow-sm">
+                        <span class="text-sm font-medium hidden sm:block">\${user.displayName}</span>
+                        <a href="/logout" class="text-gray-500 hover:text-black text-sm font-medium transition-colors ml-2">Log out</a>
+                    </div>
+                \` : \`
+                    <a href="/auth/google" class="text-gray-600 hover:text-black font-medium text-sm transition-colors">Sign in</a>
+                    <a href="/auth/google" class="bg-black hover:bg-gray-800 text-white font-medium py-2 px-4 text-sm rounded-full shadow-md hover:shadow-lg transition-all">Sign up</a>
+                \`}
+            </div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-1 mt-16 flex flex-col">
+        \${content}
+    </main>
+
+    <!-- Footer -->
+    <footer class="border-t border-gray-200 bg-white py-12 mt-auto">
+        <div class="max-w-7xl mx-auto px-6 text-center">
+            <div class="w-10 h-10 bg-black text-white rounded-xl flex items-center justify-center text-lg font-bold mx-auto mb-4">X</div>
+            <p class="text-gray-500 text-sm mb-2">Designed for Windows developers. Built with precision.</p>
+            <p class="text-gray-400 text-xs">&copy; 2026 XPM Registry. All rights reserved.</p>
+        </div>
+    </footer>
+</body>
+</html>
+\`;
+
 app.get('/', async (req, res) => {
-    const user = req.user;
     const packages = await Package.find().populate('author', 'displayName avatarUrl').sort({ downloads: -1 });
 
-    let authSection = `
-        <div class="flex items-center gap-4">
-            <a href="/auth/google" class="text-black font-semibold text-sm hover:opacity-80">Sign In</a>
-            <a href="/auth/google" class="bg-white border border-black hover:bg-gray-100 text-black font-semibold py-1.5 px-4 text-sm rounded">Sign Up</a>
-        </div>
-    `;
-
-    if (user) {
-        authSection = `
-            <div class="flex items-center gap-3">
-                <img src="${user.avatarUrl}" class="w-8 h-8 rounded-full border border-gray-300">
-                <a href="/logout" class="text-gray-600 hover:text-black text-sm">Logout</a>
+    const packageCards = packages.map(pkg => \`
+        <a href="/package/\${pkg.name}" class="group block bg-white border border-gray-200 rounded-2xl p-6 hover:shadow-xl hover:border-gray-300 transition-all duration-300 transform hover:-translate-y-1">
+            <div class="flex justify-between items-start mb-4">
+                <h3 class="text-xl font-bold text-gray-900 group-hover:text-blue-600 transition-colors">\${pkg.name}</h3>
+                <span class="bg-gray-100 text-gray-600 text-xs font-semibold px-2.5 py-1 rounded-full font-mono">v\${pkg.version}</span>
             </div>
-        `;
+            <p class="text-gray-500 text-sm mb-6 line-clamp-2">\${pkg.description || 'A powerful CLI tool built for the modern Windows ecosystem.'}</p>
+            <div class="flex items-center justify-between mt-auto pt-4 border-t border-gray-100">
+                <div class="flex items-center gap-2">
+                    <img src="\${pkg.author?.avatarUrl || ''}" class="w-6 h-6 rounded-full border border-gray-200">
+                    <span class="text-xs font-medium text-gray-600">\${pkg.author?.displayName || 'Unknown'}</span>
+                </div>
+                <div class="flex items-center gap-1 text-gray-400 text-xs font-medium">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+                    \${pkg.downloads}
+                </div>
+            </div>
+        </a>
+    \`).join('') || '<div class="col-span-full text-center py-20 text-gray-400 font-medium">No packages published yet. Be the first!</div>';
+
+    let dashboard = '';
+    if (req.user) {
+        dashboard = \`
+            <div class="max-w-7xl mx-auto px-6 mb-12">
+                <div class="bg-black rounded-3xl p-8 md:p-10 text-white shadow-2xl relative overflow-hidden">
+                    <div class="absolute top-0 right-0 w-64 h-64 bg-blue-500 rounded-full blur-3xl opacity-20 -mr-20 -mt-20 pointer-events-none"></div>
+                    <h2 class="text-2xl font-bold mb-2 relative z-10">Welcome back, \${req.user.displayName.split(' ')[0]}</h2>
+                    <p class="text-gray-400 mb-6 max-w-xl relative z-10">Use your secret CLI token to publish packages directly from your terminal. Treat this token like a password.</p>
+                    
+                    <div class="flex flex-col sm:flex-row gap-3 relative z-10">
+                        <div class="relative flex-1 max-w-md">
+                            <input type="password" id="cliToken" readonly value="\${req.user.cliToken}" class="w-full bg-gray-900 border border-gray-700 text-gray-300 text-sm font-mono p-3 pl-4 rounded-xl focus:outline-none focus:border-gray-500">
+                        </div>
+                        <button onclick="
+                            const el = document.getElementById('cliToken'); 
+                            el.type = 'text'; 
+                            navigator.clipboard.writeText(el.value); 
+                            this.innerHTML = 'Copied!'; 
+                            this.classList.add('bg-green-600', 'hover:bg-green-500'); 
+                            setTimeout(() => { el.type = 'password'; this.innerHTML = 'Copy Token'; this.classList.remove('bg-green-600', 'hover:bg-green-500'); }, 2000);
+                        " class="bg-white text-black font-semibold px-6 py-3 rounded-xl hover:bg-gray-100 transition-all shadow-md whitespace-nowrap">
+                            Copy Token
+                        </button>
+                    </div>
+                </div>
+            </div>
+        \`;
     }
 
-    const packageHTML = packages.map(pkg => `
-        <div class="border-b border-gray-200 py-4 hover:bg-gray-50 transition-colors">
-            <a href="/package/${pkg.name}" class="text-lg font-bold text-[#cb3837] hover:underline hover:text-red-700 block mb-1">${pkg.name}</a>
-            <p class="text-gray-600 text-sm mb-3 font-serif">${pkg.description || 'No description provided.'}</p>
-            <div class="flex items-center gap-4 text-xs text-gray-500">
-                <span class="flex items-center gap-1 font-bold"><svg class="w-3 h-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM9 5h2v5h-2V5zm0 6h2v2H9v-2z"/></svg> v${pkg.version}</span>
-                <span class="flex items-center gap-1">published by <strong class="text-gray-800">${pkg.author ? pkg.author.displayName : 'unknown'}</strong></span>
-                <span class="flex items-center gap-1">⬇ ${pkg.downloads} downloads</span>
+    const content = \`
+        \${req.user ? '' : \`
+        <div class="pt-24 pb-16 px-6 text-center relative overflow-hidden">
+            <div class="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[400px] bg-gradient-to-r from-blue-400/20 to-purple-500/20 blur-[100px] rounded-full pointer-events-none"></div>
+            <h1 class="text-5xl md:text-7xl font-extrabold tracking-tight mb-6 relative z-10 gradient-text">
+                Build perfect<br>Windows workflows.
+            </h1>
+            <p class="text-lg text-gray-500 max-w-2xl mx-auto mb-10 relative z-10">
+                XPM is the modern, blazing fast registry for Windows. Publish your CLI tools instantly, execute them seamlessly, and manage your projects with unparalleled developer experience.
+            </p>
+            <div class="flex items-center justify-center gap-4 relative z-10">
+                <div class="bg-gray-900 text-white pl-6 pr-2 py-2 rounded-full flex items-center gap-4 shadow-xl border border-gray-800">
+                    <code class="font-mono text-sm text-gray-300">winget install test0ing7-ux.xpm</code>
+                    <button onclick="navigator.clipboard.writeText('winget install test0ing7-ux.xpm')" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors">
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    </button>
+                </div>
             </div>
         </div>
-    `).join('') || '<p class="text-gray-500 py-10">No packages found.</p>';
+        \`}
 
-    res.send(`
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>xpm | build amazing things</title>
-            <script src="https://cdn.tailwindcss.com"></script>
-        </head>
-        <body class="bg-white text-gray-900 font-sans antialiased">
-            <div class="h-1 bg-[#cb3837] w-full"></div>
-            
-            <header class="border-b border-gray-200">
-                <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-6">
-                    <div class="flex items-center gap-2">
-                        <a href="/" class="text-[32px] font-black tracking-tighter" style="color:#cb3837;">xpm</a>
-                    </div>
-                    
-                    <div class="flex-1 max-w-4xl flex items-center bg-gray-100 px-4 py-2">
-                        <svg class="w-5 h-5 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                        <input type="text" placeholder="Search packages" class="bg-transparent border-none outline-none w-full text-black placeholder-gray-500 text-sm">
-                        <button class="bg-black text-white px-5 py-2 font-bold text-sm ml-2">Search</button>
-                    </div>
+        \${dashboard}
 
-                    ${authSection}
-                </div>
-            </header>
+        <div class="max-w-7xl mx-auto px-6 py-12 w-full">
+            <div class="flex items-center justify-between mb-8">
+                <h2 class="text-2xl font-bold text-gray-900 tracking-tight">Trending Packages</h2>
+                <a href="#" class="text-sm font-semibold text-blue-600 hover:text-blue-800">View all &rarr;</a>
+            </div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6">
+                \${packageCards}
+            </div>
+        </div>
+    \`;
 
-            <main class="max-w-7xl mx-auto px-4 py-12 flex gap-12">
-                <div class="flex-1">
-                    <h2 class="text-2xl font-bold mb-6 flex items-center gap-2">Explore <span class="bg-[#cb3837]/10 text-[#cb3837] px-2 py-0.5 rounded text-sm">public</span></h2>
-                    <div class="flex flex-col">
-                        ${packageHTML}
-                    </div>
-                </div>
-                <div class="w-80 hidden lg:block">
-                    ${user ? `
-                    <div class="border border-[#cb3837]/20 bg-[#cb3837]/5 p-5 mb-6 shadow-sm">
-                        <h3 class="font-bold text-[#cb3837] mb-2 flex items-center gap-2">
-                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
-                            Your CLI Token
-                        </h3>
-                        <input type="text" readonly value="${user.cliToken}" class="w-full bg-white border border-gray-300 text-xs font-mono p-2 mb-2 outline-none focus:border-[#cb3837]">
-                        <button onclick="navigator.clipboard.writeText('${user.cliToken}'); this.innerText='Copied!'" class="text-xs bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-bold py-1.5 px-3 w-full transition-colors">Copy to clipboard</button>
-                    </div>
-                    ` : ''}
-                    <div class="bg-gray-50 p-6 border border-gray-200">
-                        <h3 class="font-bold mb-3">Install xpm</h3>
-                        <code class="block bg-black text-white p-3 text-sm font-mono mb-2">winget install test0ing7-ux.xpm</code>
-                        <p class="text-xs text-gray-500">Global package manager & NPX runner designed for Windows.</p>
-                    </div>
-                </div>
-            </main>
-        </body>
-        </html>
-    `);
+    res.send(getLayout(content, req.user));
 });
 
 app.get('/package/:name', async (req, res) => {
     const pkg = await Package.findOne({ name: req.params.name }).populate('author');
     if (!pkg) return res.status(404).send('Package not found');
     
-    res.send(`
-        <!DOCTYPE html>
-        <html lang="en">
-        <head>
-            <meta charset="UTF-8">
-            <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>${pkg.name} - xpm</title>
-            <script src="https://cdn.tailwindcss.com"></script>
-            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
-            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css">
-        </head>
-        <body class="bg-white text-gray-900 font-sans antialiased">
-            <div class="h-1 bg-[#cb3837] w-full"></div>
-            <header class="border-b border-gray-200">
-                <div class="max-w-7xl mx-auto px-4 h-16 flex items-center">
-                    <a href="/" class="text-[32px] font-black tracking-tighter" style="color:#cb3837;">xpm</a>
-                    <div class="flex-1 ml-6 bg-gray-100 flex items-center px-4 py-2">
-                        <input type="text" placeholder="Search packages" class="bg-transparent border-none outline-none w-full text-sm">
-                        <button class="bg-black text-white px-5 py-2 font-bold text-sm ml-2">Search</button>
-                    </div>
+    const content = \`
+        <div class="bg-white border-b border-gray-200 pt-12 pb-8">
+            <div class="max-w-7xl mx-auto px-6">
+                <div class="flex items-center gap-3 mb-2">
+                    <h1 class="text-3xl font-extrabold tracking-tight text-gray-900">\${pkg.name}</h1>
+                    <span class="bg-blue-100 text-blue-700 text-sm font-bold px-3 py-1 rounded-full font-mono">v\${pkg.version}</span>
                 </div>
-            </header>
+                <p class="text-gray-500 text-lg mb-6">A powerful executable distributed via XPM.</p>
+                
+                <div class="flex gap-8 text-sm font-semibold border-b border-gray-200 mt-8">
+                    <span class="text-black border-b-2 border-black pb-3 px-1">Readme</span>
+                    <span class="text-gray-400 cursor-not-allowed pb-3 px-1">Code</span>
+                    <span class="text-gray-400 cursor-not-allowed pb-3 px-1">Dependencies</span>
+                </div>
+            </div>
+        </div>
 
-            <div class="border-b border-gray-200 pt-8 pb-4">
-                <div class="max-w-7xl mx-auto px-4">
-                    <h1 class="text-2xl font-bold flex items-center gap-2">${pkg.name} <span class="text-gray-400 text-lg font-normal">v${pkg.version}</span></h1>
-                    <div class="flex gap-6 mt-4 text-sm font-semibold border-b border-gray-200">
-                        <span class="text-[#cb3837] border-b-2 border-[#cb3837] pb-3 px-1">Readme</span>
-                        <span class="text-gray-500 hover:text-black cursor-not-allowed pb-3 px-1">Code</span>
-                        <span class="text-gray-500 hover:text-black cursor-not-allowed pb-3 px-1">Versions</span>
+        <div class="max-w-7xl mx-auto px-6 py-10 flex flex-col lg:flex-row gap-12 w-full">
+            <div class="flex-1 min-w-0">
+                <div id="readme" class="markdown-body bg-white border border-gray-100 p-8 rounded-2xl shadow-sm"></div>
+            </div>
+            
+            <div class="w-full lg:w-80 shrink-0">
+                <div class="bg-white border border-gray-200 rounded-2xl p-6 shadow-sm sticky top-24">
+                    <h3 class="font-bold text-gray-900 mb-3">Install</h3>
+                    <div class="flex items-center justify-between border border-gray-200 bg-gray-50 rounded-xl p-3 mb-6 hover:border-gray-300 transition-colors cursor-text group" onclick="navigator.clipboard.writeText('xpm install \${pkg.name}');">
+                        <code class="text-sm font-mono text-gray-700">xpm install \${pkg.name}</code>
+                        <div class="bg-white border border-gray-200 p-1.5 rounded-md group-hover:shadow-sm">
+                            <svg class="w-4 h-4 text-gray-400 group-hover:text-black cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        </div>
+                    </div>
+
+                    <div class="space-y-4">
+                        <div>
+                            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Weekly Downloads</h3>
+                            <div class="flex items-center gap-2">
+                                <svg class="w-5 h-5 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6"></path></svg>
+                                <p class="text-2xl font-bold text-gray-900">\${pkg.downloads}</p>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 gap-4 border-t border-gray-100 pt-4">
+                            <div>
+                                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Version</h3>
+                                <p class="text-sm font-bold text-gray-900">\${pkg.version}</p>
+                            </div>
+                            <div>
+                                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">License</h3>
+                                <p class="text-sm font-bold text-gray-900">MIT</p>
+                            </div>
+                        </div>
+
+                        <div class="border-t border-gray-100 pt-4">
+                            <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Publisher</h3>
+                            <div class="flex items-center gap-3">
+                                <img src="\${pkg.author?.avatarUrl || ''}" class="w-10 h-10 rounded-full border border-gray-200">
+                                <span class="text-sm font-bold text-gray-900">\${pkg.author?.displayName || 'Unknown'}</span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
+        </div>
+        
+        <script>
+            document.getElementById('readme').innerHTML = marked.parse(${JSON.stringify(pkg.readme || '# ' + pkg.name + '\\n\\nNo README provided.')});
+        </script>
+    \`;
 
-            <main class="max-w-7xl mx-auto px-4 py-8 flex flex-col md:flex-row gap-12">
-                <div class="flex-1">
-                    <div id="readme" class="markdown-body"></div>
-                </div>
-                
-                <div class="w-full md:w-80">
-                    <h3 class="font-bold text-gray-600 text-sm mb-2">Install</h3>
-                    <div class="flex items-center justify-between border border-gray-300 p-2 mb-6 hover:border-gray-400 transition-colors cursor-text group" onclick="navigator.clipboard.writeText('xpm install ${pkg.name}');">
-                        <code class="text-sm font-mono text-gray-700">xpm install ${pkg.name}</code>
-                        <svg class="w-4 h-4 text-gray-400 group-hover:text-black cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
-                    </div>
-
-                    <div class="border-t border-gray-200 py-4">
-                        <h3 class="text-xs font-bold text-gray-500 mb-1">Weekly Downloads</h3>
-                        <p class="text-xl font-medium">${pkg.downloads}</p>
-                    </div>
-                    
-                    <div class="border-t border-gray-200 py-4 flex items-center justify-between">
-                        <div>
-                            <h3 class="text-xs font-bold text-gray-500 mb-1">Version</h3>
-                            <p class="text-sm font-bold text-gray-900">${pkg.version}</p>
-                        </div>
-                        <div>
-                            <h3 class="text-xs font-bold text-gray-500 mb-1">License</h3>
-                            <p class="text-sm font-bold text-gray-900">MIT</p>
-                        </div>
-                    </div>
-
-                    <div class="border-t border-gray-200 py-4">
-                        <h3 class="text-xs font-bold text-gray-500 mb-2">Collaborators</h3>
-                        <div class="flex items-center gap-2">
-                            <img src="${pkg.author ? pkg.author.avatarUrl : ''}" title="${pkg.author ? pkg.author.displayName : ''}" class="w-10 h-10 rounded-full border border-gray-200">
-                        </div>
-                    </div>
-                </div>
-            </main>
-            
-            <script>
-                document.getElementById('readme').innerHTML = marked.parse(${JSON.stringify(pkg.readme || '# ' + pkg.name + '\\n\\nNo README provided.')});
-            </script>
-        </body>
-        </html>
-    `);
+    res.send(getLayout(content, req.user));
 });
 
 app.listen(PORT, () => console.log('🚀 XPM Server running on port ' + PORT));

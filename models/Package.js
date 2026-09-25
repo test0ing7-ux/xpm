@@ -7,7 +7,8 @@ const PackageSchema = new mongoose.Schema({
     author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
     filename: { type: String, required: true }, // The .tgz filename
     downloads: { type: Number, default: 0 },
-    readme: { type: String }
+    readme: { type: String },
+    tarball: { type: Buffer }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Package', PackageSchema);
