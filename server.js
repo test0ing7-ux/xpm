@@ -146,5 +146,5 @@ app.get('/download-cli', (req, res) => {
 });
 
 app.listen(PORT, () => {
-    console.log(\`🚀 XPM Registry Server running on port \${PORT}\`);
+    console.log(`🚀 XPM Registry Server running on port ${PORT}`);
 });
