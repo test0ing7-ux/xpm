@@ -13,6 +13,7 @@ const REGISTRY_URL = process.env.XPM_REGISTRY || 'https://xpm.up.railway.app';
 const CACHE_DIR = path.join(os.homedir(), '.xpm-cache');
 const MODULES_DIR = path.join(process.cwd(), 'xpm_modules');
 const CONFIG_FILE = path.join(process.cwd(), 'xpm.json');
+const PKG_JSON = path.join(process.cwd(), 'package.json');
 
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
@@ -26,8 +27,8 @@ program
     .command('init')
     .description('Initialize a new xpm project')
     .action(() => {
-        if (fs.existsSync(CONFIG_FILE)) {
-            console.error('xpm.json already exists!');
+        if (fs.existsSync(CONFIG_FILE) || fs.existsSync(PKG_JSON)) {
+            console.error('Config file already exists!');
             return;
         }
         const config = {
@@ -45,8 +46,10 @@ program
     .command('publish')
     .description('Publish the current package to the remote registry')
     .action(async () => {
-        if (!fs.existsSync(CONFIG_FILE)) return console.error('No xpm.json found.');
-        const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        const configFile = fs.existsSync(PKG_JSON) ? PKG_JSON : (fs.existsSync(CONFIG_FILE) ? CONFIG_FILE : null);
+        if (!configFile) return console.error('No package.json or xpm.json found.');
+        
+        const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
         const tarballName = `${config.name}-${config.version}.tgz`;
         const tempTarPath = path.join(process.cwd(), tarballName);
 
@@ -85,8 +88,9 @@ program
     .command('run <script>')
     .description('Run a local script')
     .action((scriptName) => {
-        if (!fs.existsSync(CONFIG_FILE)) return console.error('No xpm.json found.');
-        const config = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf-8'));
+        const configFile = fs.existsSync(PKG_JSON) ? PKG_JSON : (fs.existsSync(CONFIG_FILE) ? CONFIG_FILE : null);
+        if (!configFile) return console.error('No package config found.');
+        const config = JSON.parse(fs.readFileSync(configFile, 'utf-8'));
         const scripts = config.scripts || {};
         if (!scripts[scriptName]) return console.error(`Script '${scriptName}' not found.`);
         try { execSync(scripts[scriptName], { stdio: 'inherit' }); }
@@ -125,6 +129,21 @@ async function downloadAndExtract(pkg, destFolder) {
 
     await tar.x({ file: tempTarPath, cwd: destFolder });
     fs.unlinkSync(tempTarPath);
+
+    // DEPENDENCY INSTALLATION LOGIC
+    const pkgJsonPath = path.join(destFolder, 'package.json');
+    if (fs.existsSync(pkgJsonPath)) {
+        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+        if (pkgJson.dependencies && Object.keys(pkgJson.dependencies).length > 0) {
+            console.log(`Installing dependencies for ${pkg}...`);
+            try {
+                // Try to use the host machine's npm
+                execSync('npm install --omit=dev --no-fund --no-audit', { cwd: destFolder, stdio: 'inherit' });
+            } catch (err) {
+                console.warn(`\n⚠️ Warning: Failed to install dependencies. Make sure Node.js/NPM is installed on this PC.\n`);
+            }
+        }
+    }
 }
 
 // NPX-style execution (Default command)
@@ -139,21 +158,41 @@ program
         const cacheDest = path.join(CACHE_DIR, name);
 
         try {
-            // Always fetch latest for NPX-like execution
             await downloadAndExtract(pkg, cacheDest);
             
-            // Check xpm.json to find what to run
-            const pkgConfigPath = path.join(cacheDest, 'xpm.json');
-            if (!fs.existsSync(pkgConfigPath)) {
-                console.error(`❌ Package ${pkg} does not contain an xpm.json file.`);
+            // Check package.json FIRST (for professional npm compatibility), then fallback to xpm.json
+            let configPath = path.join(cacheDest, 'package.json');
+            if (!fs.existsSync(configPath)) {
+                configPath = path.join(cacheDest, 'xpm.json');
+            }
+            
+            if (!fs.existsSync(configPath)) {
+                console.error(`❌ Package ${pkg} does not contain a package.json or xpm.json file.`);
                 return;
             }
             
-            const config = JSON.parse(fs.readFileSync(pkgConfigPath, 'utf-8'));
-            const scriptToRun = config.scripts?.start || `node ${config.main}`;
+            const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
             
-            console.log(`\n🚀 Executing ${pkg}...\n`);
-            execSync(scriptToRun, { stdio: 'inherit', cwd: cacheDest });
+            // Determine what to run (Prefer scripts.start, then bin, then node main)
+            let scriptToRun;
+            if (config.scripts && config.scripts.start) {
+                scriptToRun = config.scripts.start;
+            } else if (config.bin) {
+                const binVal = typeof config.bin === 'string' ? config.bin : Object.values(config.bin)[0];
+                scriptToRun = `node ${binVal}`;
+            } else {
+                scriptToRun = `node ${config.main || 'index.js'}`;
+            }
+            
+            console.log(`\n⚡ Executing ${pkg}...\n`);
+            
+            // If running inside pkg (compiled exe), we must spawn process.execPath for 'node' commands
+            if (process.pkg && scriptToRun.startsWith('node ')) {
+                const targetFile = scriptToRun.replace('node ', '').trim();
+                spawnSync(process.execPath, [targetFile], { stdio: 'inherit', cwd: cacheDest });
+            } else {
+                execSync(scriptToRun, { stdio: 'inherit', cwd: cacheDest });
+            }
             
         } catch (err) {
             console.error('\n❌ Execution failed:', err.message);
