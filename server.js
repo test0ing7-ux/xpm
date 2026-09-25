@@ -62,16 +62,15 @@ passport.deserializeUser(async (id, done) => {
 });
 
 // --- AUTH ROUTES ---
-app.get('/auth/cli', (req, res) => {
-    req.session.cliPort = req.query.port;
-    res.redirect('/auth/google');
+app.get('/auth/cli', (req, res, next) => {
+    const port = req.query.port || '';
+    passport.authenticate('google', { scope: ['profile', 'email'], state: port })(req, res, next);
 });
 
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/' }), (req, res) => {
-    if (req.session.cliPort) {
-        const port = req.session.cliPort;
-        delete req.session.cliPort;
+    const port = req.query.state;
+    if (port) {
         res.redirect(`http://localhost:${port}/callback?token=${req.user.cliToken}`);
     } else {
         res.redirect('/');
