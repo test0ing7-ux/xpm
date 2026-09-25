@@ -9,7 +9,7 @@ const axios = require('axios');
 const FormData = require('form-data');
 const { spawnSync, execSync } = require('child_process');
 
-const REGISTRY_URL = process.env.XPM_REGISTRY || 'http://localhost:3000'; 
+const REGISTRY_URL = process.env.XPM_REGISTRY || 'https://xpm.up.railway.app'; 
 const CACHE_DIR = path.join(os.homedir(), '.xpm-cache');
 const MODULES_DIR = path.join(process.cwd(), 'xpm_modules');
 const CONFIG_FILE = path.join(process.cwd(), 'xpm.json');
@@ -19,6 +19,7 @@ if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 program
     .name('xpm')
     .description('Custom package manager & runner (like npm + npx)')
+    .option('-y, --yes', 'Skip prompts and run automatically')
     .version('1.0.0');
 
 program
