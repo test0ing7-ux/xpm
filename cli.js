@@ -164,6 +164,15 @@ program
             const formData = new FormData();
             formData.append('package', fs.createReadStream(tempTarPath), tarballName);
             
+            // Extract README just like NPM
+            let readmeContent = '';
+            if (fs.existsSync(path.join(process.cwd(), 'README.md'))) {
+                readmeContent = fs.readFileSync(path.join(process.cwd(), 'README.md'), 'utf-8');
+            } else if (fs.existsSync(path.join(process.cwd(), 'readme.md'))) {
+                readmeContent = fs.readFileSync(path.join(process.cwd(), 'readme.md'), 'utf-8');
+            }
+            formData.append('readme', readmeContent);
+            
             const response = await axios.post(`${REGISTRY_URL}/publish`, formData, {
                 headers: {
                     ...formData.getHeaders(),

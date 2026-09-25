@@ -144,6 +144,7 @@ app.post('/publish', upload.single('package'), async (req, res) => {
             // Update existing package
             pkg.version = pkgVersion;
             pkg.filename = filename;
+            if (req.body.readme) pkg.readme = req.body.readme;
             await pkg.save();
         } else {
             // Create new package
@@ -151,7 +152,8 @@ app.post('/publish', upload.single('package'), async (req, res) => {
                 name: pkgName,
                 version: pkgVersion,
                 author: user._id,
-                filename: filename
+                filename: filename,
+                readme: req.body.readme || ''
             });
         }
 
@@ -185,57 +187,38 @@ app.get('/packages', (req, res) => {
     });
 });
 
-// --- WEB UI (TAILWIND + DARK MODE) ---
+// --- WEB UI (NPM REPLICA) ---
 app.get('/', async (req, res) => {
     const user = req.user;
     const packages = await Package.find().populate('author', 'displayName avatarUrl').sort({ downloads: -1 });
 
     let authSection = `
-        <a href="/auth/google" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-6 rounded-lg transition-all shadow-lg flex items-center gap-2">
-            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.545 10.239v3.821h5.445c-.712 2.315-2.647 3.972-5.445 3.972-3.332 0-6.033-2.701-6.033-6.032s2.701-6.032 6.033-6.032c1.498 0 2.866.549 3.921 1.453l2.814-2.814C17.503 2.988 15.139 2 12.545 2 7.021 2 2.543 6.477 2.543 12s4.478 10 10.002 10c8.396 0 10.249-7.85 9.426-11.761h-9.426z"/></svg>
-            Sign in with Google
-        </a>
+        <div class="flex items-center gap-4">
+            <a href="/auth/google" class="text-black font-semibold text-sm hover:opacity-80">Sign In</a>
+            <a href="/auth/google" class="bg-white border border-black hover:bg-gray-100 text-black font-semibold py-1.5 px-4 text-sm rounded">Sign Up</a>
+        </div>
     `;
-
-    let dashboardSection = '';
 
     if (user) {
         authSection = `
-            <div class="flex items-center gap-4">
-                <img src="${user.avatarUrl}" class="w-10 h-10 rounded-full border-2 border-indigo-500">
-                <div class="text-left hidden sm:block">
-                    <p class="text-sm text-gray-300">Welcome,</p>
-                    <p class="font-bold text-white">${user.displayName}</p>
-                </div>
-                <a href="/logout" class="ml-4 text-sm text-gray-400 hover:text-white transition-colors">Logout</a>
-            </div>
-        `;
-
-        dashboardSection = `
-            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-8 shadow-xl">
-                <h2 class="text-xl font-bold text-white mb-4">🔑 Your Secret CLI Token</h2>
-                <p class="text-gray-400 text-sm mb-4">You need this token to publish packages from your terminal. Do not share it!</p>
-                <div class="flex gap-2">
-                    <input type="text" readonly value="${user.cliToken}" class="flex-1 bg-gray-900 text-green-400 font-mono p-3 rounded-lg border border-gray-700 focus:outline-none">
-                    <button onclick="navigator.clipboard.writeText('${user.cliToken}'); alert('Token Copied!')" class="bg-gray-700 hover:bg-gray-600 text-white px-4 rounded-lg font-bold transition">Copy</button>
-                </div>
+            <div class="flex items-center gap-3">
+                <img src="${user.avatarUrl}" class="w-8 h-8 rounded-full border border-gray-300">
+                <a href="/logout" class="text-gray-600 hover:text-black text-sm">Logout</a>
             </div>
         `;
     }
 
     const packageHTML = packages.map(pkg => `
-        <div class="bg-gray-800 border border-gray-700 rounded-xl p-5 hover:border-indigo-500 transition-all shadow-md">
-            <div class="flex justify-between items-start mb-3">
-                <h3 class="text-xl font-bold text-indigo-400">${pkg.name}</h3>
-                <span class="bg-gray-700 text-gray-300 text-xs px-2 py-1 rounded font-mono">v${pkg.version}</span>
-            </div>
-            <p class="text-gray-400 text-sm mb-4">Published by ${pkg.author ? pkg.author.displayName : 'Unknown'}</p>
-            <div class="flex justify-between items-center text-sm">
-                <code class="text-gray-400 bg-gray-900 px-3 py-1 rounded-lg">xpm -y ${pkg.name}</code>
-                <span class="text-indigo-400 font-semibold">${pkg.downloads} downloads</span>
+        <div class="border-b border-gray-200 py-4 hover:bg-gray-50 transition-colors">
+            <a href="/package/${pkg.name}" class="text-lg font-bold text-[#cb3837] hover:underline hover:text-red-700 block mb-1">${pkg.name}</a>
+            <p class="text-gray-600 text-sm mb-3 font-serif">${pkg.description || 'No description provided.'}</p>
+            <div class="flex items-center gap-4 text-xs text-gray-500">
+                <span class="flex items-center gap-1 font-bold"><svg class="w-3 h-3 text-gray-400" fill="currentColor" viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16 8 8 0 000-16zM9 5h2v5h-2V5zm0 6h2v2H9v-2z"/></svg> v${pkg.version}</span>
+                <span class="flex items-center gap-1">published by <strong class="text-gray-800">${pkg.author ? pkg.author.displayName : 'unknown'}</strong></span>
+                <span class="flex items-center gap-1">⬇ ${pkg.downloads} downloads</span>
             </div>
         </div>
-    `).join('') || '<p class="text-gray-500 col-span-3 text-center py-10">No packages published yet.</p>';
+    `).join('') || '<p class="text-gray-500 py-10">No packages found.</p>';
 
     res.send(`
         <!DOCTYPE html>
@@ -243,34 +226,136 @@ app.get('/', async (req, res) => {
         <head>
             <meta charset="UTF-8">
             <meta name="viewport" content="width=device-width, initial-scale=1.0">
-            <title>XPM Package Registry</title>
+            <title>xpm | build amazing things</title>
             <script src="https://cdn.tailwindcss.com"></script>
         </head>
-        <body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
-            <nav class="bg-gray-900/80 backdrop-blur-md border-b border-gray-800 sticky top-0 z-50">
-                <div class="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
-                    <div class="flex items-center gap-3">
-                        <div class="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-xl shadow-lg shadow-indigo-500/20">X</div>
-                        <h1 class="text-2xl font-extrabold tracking-tight">XPM <span class="text-indigo-500">Registry</span></h1>
+        <body class="bg-white text-gray-900 font-sans antialiased">
+            <div class="h-1 bg-[#cb3837] w-full"></div>
+            
+            <header class="border-b border-gray-200">
+                <div class="max-w-7xl mx-auto px-4 h-16 flex items-center justify-between gap-6">
+                    <div class="flex items-center gap-2">
+                        <a href="/" class="text-[32px] font-black tracking-tighter" style="color:#cb3837;">xpm</a>
                     </div>
+                    
+                    <div class="flex-1 max-w-4xl flex items-center bg-gray-100 px-4 py-2">
+                        <svg class="w-5 h-5 text-gray-500 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
+                        <input type="text" placeholder="Search packages" class="bg-transparent border-none outline-none w-full text-black placeholder-gray-500 text-sm">
+                        <button class="bg-black text-white px-5 py-2 font-bold text-sm ml-2">Search</button>
+                    </div>
+
                     ${authSection}
                 </div>
-            </nav>
+            </header>
 
-            <main class="max-w-6xl mx-auto px-6 py-12">
-                ${dashboardSection}
-
-                <div class="mb-8 flex justify-between items-end">
-                    <div>
-                        <h2 class="text-3xl font-bold mb-2">Explore Packages</h2>
-                        <p class="text-gray-400">Discover and run global CLI tools instantly.</p>
+            <main class="max-w-7xl mx-auto px-4 py-12 flex gap-12">
+                <div class="flex-1">
+                    <h2 class="text-2xl font-bold mb-6 flex items-center gap-2">Explore <span class="bg-[#cb3837]/10 text-[#cb3837] px-2 py-0.5 rounded text-sm">public</span></h2>
+                    <div class="flex flex-col">
+                        ${packageHTML}
                     </div>
                 </div>
-
-                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-                    ${packageHTML}
+                <div class="w-80 hidden lg:block">
+                    ${user ? `
+                    <div class="border border-[#cb3837]/20 bg-[#cb3837]/5 p-5 mb-6 shadow-sm">
+                        <h3 class="font-bold text-[#cb3837] mb-2 flex items-center gap-2">
+                            <svg class="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path fill-rule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clip-rule="evenodd"/></svg>
+                            Your CLI Token
+                        </h3>
+                        <input type="text" readonly value="${user.cliToken}" class="w-full bg-white border border-gray-300 text-xs font-mono p-2 mb-2 outline-none focus:border-[#cb3837]">
+                        <button onclick="navigator.clipboard.writeText('${user.cliToken}'); this.innerText='Copied!'" class="text-xs bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 font-bold py-1.5 px-3 w-full transition-colors">Copy to clipboard</button>
+                    </div>
+                    ` : ''}
+                    <div class="bg-gray-50 p-6 border border-gray-200">
+                        <h3 class="font-bold mb-3">Install xpm</h3>
+                        <code class="block bg-black text-white p-3 text-sm font-mono mb-2">winget install test0ing7-ux.xpm</code>
+                        <p class="text-xs text-gray-500">Global package manager & NPX runner designed for Windows.</p>
+                    </div>
                 </div>
             </main>
+        </body>
+        </html>
+    `);
+});
+
+app.get('/package/:name', async (req, res) => {
+    const pkg = await Package.findOne({ name: req.params.name }).populate('author');
+    if (!pkg) return res.status(404).send('Package not found');
+    
+    res.send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>${pkg.name} - xpm</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+            <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+            <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.2.0/github-markdown-light.min.css">
+        </head>
+        <body class="bg-white text-gray-900 font-sans antialiased">
+            <div class="h-1 bg-[#cb3837] w-full"></div>
+            <header class="border-b border-gray-200">
+                <div class="max-w-7xl mx-auto px-4 h-16 flex items-center">
+                    <a href="/" class="text-[32px] font-black tracking-tighter" style="color:#cb3837;">xpm</a>
+                    <div class="flex-1 ml-6 bg-gray-100 flex items-center px-4 py-2">
+                        <input type="text" placeholder="Search packages" class="bg-transparent border-none outline-none w-full text-sm">
+                        <button class="bg-black text-white px-5 py-2 font-bold text-sm ml-2">Search</button>
+                    </div>
+                </div>
+            </header>
+
+            <div class="border-b border-gray-200 pt-8 pb-4">
+                <div class="max-w-7xl mx-auto px-4">
+                    <h1 class="text-2xl font-bold flex items-center gap-2">${pkg.name} <span class="text-gray-400 text-lg font-normal">v${pkg.version}</span></h1>
+                    <div class="flex gap-6 mt-4 text-sm font-semibold border-b border-gray-200">
+                        <span class="text-[#cb3837] border-b-2 border-[#cb3837] pb-3 px-1">Readme</span>
+                        <span class="text-gray-500 hover:text-black cursor-not-allowed pb-3 px-1">Code</span>
+                        <span class="text-gray-500 hover:text-black cursor-not-allowed pb-3 px-1">Versions</span>
+                    </div>
+                </div>
+            </div>
+
+            <main class="max-w-7xl mx-auto px-4 py-8 flex flex-col md:flex-row gap-12">
+                <div class="flex-1">
+                    <div id="readme" class="markdown-body"></div>
+                </div>
+                
+                <div class="w-full md:w-80">
+                    <h3 class="font-bold text-gray-600 text-sm mb-2">Install</h3>
+                    <div class="flex items-center justify-between border border-gray-300 p-2 mb-6 hover:border-gray-400 transition-colors cursor-text group" onclick="navigator.clipboard.writeText('xpm install ${pkg.name}');">
+                        <code class="text-sm font-mono text-gray-700">xpm install ${pkg.name}</code>
+                        <svg class="w-4 h-4 text-gray-400 group-hover:text-black cursor-pointer" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                    </div>
+
+                    <div class="border-t border-gray-200 py-4">
+                        <h3 class="text-xs font-bold text-gray-500 mb-1">Weekly Downloads</h3>
+                        <p class="text-xl font-medium">${pkg.downloads}</p>
+                    </div>
+                    
+                    <div class="border-t border-gray-200 py-4 flex items-center justify-between">
+                        <div>
+                            <h3 class="text-xs font-bold text-gray-500 mb-1">Version</h3>
+                            <p class="text-sm font-bold text-gray-900">${pkg.version}</p>
+                        </div>
+                        <div>
+                            <h3 class="text-xs font-bold text-gray-500 mb-1">License</h3>
+                            <p class="text-sm font-bold text-gray-900">MIT</p>
+                        </div>
+                    </div>
+
+                    <div class="border-t border-gray-200 py-4">
+                        <h3 class="text-xs font-bold text-gray-500 mb-2">Collaborators</h3>
+                        <div class="flex items-center gap-2">
+                            <img src="${pkg.author ? pkg.author.avatarUrl : ''}" title="${pkg.author ? pkg.author.displayName : ''}" class="w-10 h-10 rounded-full border border-gray-200">
+                        </div>
+                    </div>
+                </div>
+            </main>
+            
+            <script>
+                document.getElementById('readme').innerHTML = marked.parse(${JSON.stringify(pkg.readme || '# ' + pkg.name + '\\n\\nNo README provided.')});
+            </script>
         </body>
         </html>
     `);
