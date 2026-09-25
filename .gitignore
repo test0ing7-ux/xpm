@@ -1,0 +1,5 @@
+node_modules/
+registry_data/
+xpm_modules/
+.xpm-cache/
+*.tgz

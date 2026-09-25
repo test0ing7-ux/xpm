@@ -1,0 +1,22 @@
+{
+  "name": "xpm-cli",
+  "version": "1.0.0",
+  "description": "Custom package manager CLI",
+  "main": "index.js",
+  "bin": {
+    "xpm": "./index.js"
+  },
+  "scripts": {
+    "build": "pkg . --targets node18-win-x64 --output xpm.exe"
+  },
+  "dependencies": {
+    "adm-zip": "^0.5.10",
+    "axios": "^1.6.0",
+    "commander": "^11.1.0",
+    "form-data": "^4.0.0",
+    "fs-extra": "^11.2.0"
+  },
+  "devDependencies": {
+    "pkg": "^5.8.1"
+  }
+}
