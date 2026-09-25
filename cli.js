@@ -14,14 +14,64 @@ const CACHE_DIR = path.join(os.homedir(), '.xpm-cache');
 const MODULES_DIR = path.join(process.cwd(), 'xpm_modules');
 const CONFIG_FILE = path.join(process.cwd(), 'xpm.json');
 const PKG_JSON = path.join(process.cwd(), 'package.json');
+const INSTALL_DIR = path.join(os.homedir(), '.xpm-bin');
 
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
+
+// ==========================================
+// 🚀 DOUBLE-CLICK INSTALLER LOGIC
+// ==========================================
+if (process.argv.length === 2 && process.pkg) {
+    const currentExePath = process.execPath.toLowerCase();
+    const targetExePath = path.join(INSTALL_DIR, 'xpm.exe').toLowerCase();
+
+    // If the user is running the .exe from their Downloads folder (not installed yet)
+    if (currentExePath !== targetExePath) {
+        console.log("==================================================");
+        console.log("🚀 Welcome to the XPM Global Installer!");
+        console.log("==================================================");
+        
+        try {
+            if (!fs.existsSync(INSTALL_DIR)) fs.mkdirSync(INSTALL_DIR, { recursive: true });
+            const finalExe = path.join(INSTALL_DIR, 'xpm.exe');
+            
+            console.log(`\n📦 Copying XPM to ${INSTALL_DIR}...`);
+            fs.copyFileSync(process.execPath, finalExe);
+            
+            console.log("⚙️  Setting up global PATH variable...");
+            
+            // Get current User PATH and append XPM folder if it's not already there
+            const userPath = execSync('powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable(\'Path\', \'User\')"').toString().trim();
+            if (!userPath.toLowerCase().includes(INSTALL_DIR.toLowerCase())) {
+                const newPath = userPath ? `${userPath};${INSTALL_DIR}` : INSTALL_DIR;
+                execSync(`powershell -NoProfile -Command "[Environment]::SetEnvironmentVariable(\'Path\', \'${newPath}\', \'User\')"`);
+            }
+            
+            console.log("\n✅ SUCCESS! XPM has been installed globally on your PC.");
+            console.log("You can now safely delete this downloaded file.");
+            console.log("\n➡️  To use XPM, just open any NEW terminal and type: xpm");
+            
+        } catch (err) {
+            console.error("\n❌ Installation failed:", err.message);
+        }
+        
+        console.log("\nPress any key to close this installer...");
+        execSync('pause', { stdio: 'inherit', shell: true });
+        process.exit(0);
+    }
+}
+// ==========================================
 
 program
     .name('xpm')
     .description('Custom package manager & runner (like npm + npx)')
     .option('-y, --yes', 'Skip prompts and run automatically')
     .version('1.0.0');
+
+// Fix: Don't use default command if length is 2, just show help
+if (process.argv.length === 2) {
+    program.help();
+}
 
 program
     .command('init')
@@ -137,7 +187,6 @@ async function downloadAndExtract(pkg, destFolder) {
         if (pkgJson.dependencies && Object.keys(pkgJson.dependencies).length > 0) {
             console.log(`Installing dependencies for ${pkg}...`);
             try {
-                // Try to use the host machine's npm
                 execSync('npm install --omit=dev --no-fund --no-audit', { cwd: destFolder, stdio: 'inherit' });
             } catch (err) {
                 console.warn(`\n⚠️ Warning: Failed to install dependencies. Make sure Node.js/NPM is installed on this PC.\n`);
@@ -151,7 +200,6 @@ program
     .command('exec <pkg>', { isDefault: true })
     .description('Download and run a package instantly (like npx)')
     .action(async (pkg) => {
-        // Prevent running built-in commands as packages if user mistypes
         if (['init', 'publish', 'install', 'run', 'delete'].includes(pkg)) return;
 
         let name = pkg.split('@')[0];
@@ -160,33 +208,19 @@ program
         try {
             await downloadAndExtract(pkg, cacheDest);
             
-            // Check package.json FIRST (for professional npm compatibility), then fallback to xpm.json
             let configPath = path.join(cacheDest, 'package.json');
-            if (!fs.existsSync(configPath)) {
-                configPath = path.join(cacheDest, 'xpm.json');
-            }
-            
-            if (!fs.existsSync(configPath)) {
-                console.error(`❌ Package ${pkg} does not contain a package.json or xpm.json file.`);
-                return;
-            }
+            if (!fs.existsSync(configPath)) configPath = path.join(cacheDest, 'xpm.json');
+            if (!fs.existsSync(configPath)) return console.error(`❌ Package ${pkg} does not contain a package.json or xpm.json file.`);
             
             const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
             
-            // Determine what to run (Prefer scripts.start, then bin, then node main)
             let scriptToRun;
-            if (config.scripts && config.scripts.start) {
-                scriptToRun = config.scripts.start;
-            } else if (config.bin) {
-                const binVal = typeof config.bin === 'string' ? config.bin : Object.values(config.bin)[0];
-                scriptToRun = `node ${binVal}`;
-            } else {
-                scriptToRun = `node ${config.main || 'index.js'}`;
-            }
+            if (config.scripts && config.scripts.start) scriptToRun = config.scripts.start;
+            else if (config.bin) scriptToRun = `node ${typeof config.bin === 'string' ? config.bin : Object.values(config.bin)[0]}`;
+            else scriptToRun = `node ${config.main || 'index.js'}`;
             
             console.log(`\n⚡ Executing ${pkg}...\n`);
             
-            // If running inside pkg (compiled exe), we must spawn process.execPath for 'node' commands
             if (process.pkg && scriptToRun.startsWith('node ')) {
                 const targetFile = scriptToRun.replace('node ', '').trim();
                 spawnSync(process.execPath, [targetFile], { stdio: 'inherit', cwd: cacheDest });
