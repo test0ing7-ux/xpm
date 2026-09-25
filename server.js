@@ -27,6 +27,17 @@ const upload = multer({ storage: storage });
 
 // --- ROUTES ---
 
+// 0. Root route (Landing page)
+app.get('/', (req, res) => {
+    res.send(`
+        <h1>Welcome to XPM Registry 🚀</h1>
+        <p>This is a custom package manager registry.</p>
+        <ul>
+            <li>To see available packages, visit <a href="/packages">/packages</a></li>
+        </ul>
+    `);
+});
+
 // 1. Publish a package (Open to everyone)
 app.post('/publish', upload.single('package'), (req, res) => {
     if (!req.file) {
