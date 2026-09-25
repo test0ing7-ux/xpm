@@ -94,10 +94,18 @@ program
         });
         
         server.listen(PORT, () => {
-            console.log('Opening your browser to log in...');
             const loginUrl = `${REGISTRY_URL}/auth/cli?port=${PORT}`;
-            const startCmd = process.platform === 'win32' ? 'start' : (process.platform === 'darwin' ? 'open' : 'xdg-open');
-            execSync(`${startCmd} ${loginUrl}`);
+            console.log('\n======================================================');
+            console.log('🚪 XPM Login');
+            console.log('======================================================');
+            console.log('Opening your browser to authenticate with XPM...');
+            console.log('\nIf your browser does not open automatically, please click this link:');
+            console.log(`👉  ${loginUrl}\n`);
+            console.log('Waiting for authentication... (Press Ctrl+C to cancel)');
+            
+            const { exec } = require('child_process');
+            const startCmd = process.platform === 'win32' ? 'start ""' : (process.platform === 'darwin' ? 'open' : 'xdg-open');
+            exec(`${startCmd} "${loginUrl}"`).on('error', () => {});
         });
     });
 
@@ -290,5 +298,56 @@ program
             console.error('\n❌ Execution failed:', err.message);
         }
     });
+
+program
+    .command('info <package>')
+    .description('View details about a package')
+    .action(async (pkgName) => {
+        try {
+            const response = await axios.get(`${REGISTRY_URL}/packages`);
+            const exists = response.data.packages.find(p => p.startsWith(`${pkgName}-`));
+            if (!exists) {
+                console.error(`npm ERR! code E404\nnpm ERR! 404 Not Found - GET ${REGISTRY_URL}/package/${pkgName} - Not found`);
+                return;
+            }
+            console.log(`\n${pkgName}`);
+            console.log(`\nView online at: ${REGISTRY_URL}/package/${pkgName}`);
+        } catch (e) {
+            console.error('Failed to fetch package info.');
+        }
+    });
+
+program
+    .command('docs <package>')
+    .description('Open a package\'s documentation in your browser')
+    .action((pkgName) => {
+        console.log(`Opening ${REGISTRY_URL}/package/${pkgName} in your browser...`);
+        const { exec } = require('child_process');
+        const startCmd = process.platform === 'win32' ? 'start ""' : (process.platform === 'darwin' ? 'open' : 'xdg-open');
+        exec(`${startCmd} "${REGISTRY_URL}/package/${pkgName}"`).on('error', () => {});
+    });
+
+// Override the default help to look like NPM
+program.configureHelp({
+    formatHelp: (cmd, helper) => {
+        let v = '1.0.0';
+        try { v = require('./package.json').version; } catch(e){}
+        return `
+Usage: xpm <command>
+
+where <command> is one of:
+    docs, exec, help, info, init, install, login, publish, whoami
+
+xpm <command> -h  quick help on <command>
+xpm help <term>   search for help on <term>
+
+Specify configs in the ini-formatted file:
+    C:\\Users\\<user>\\.xpmrc
+or on the command line via: xpm <command> --key value
+
+xpm@${v} ${process.cwd()}
+`;
+    }
+});
 
 program.parse();
