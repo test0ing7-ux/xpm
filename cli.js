@@ -71,12 +71,50 @@ if (process.argv.length === 2) {
     program.help();
 }
 
+const http = require('http');
+
 program
-    .command('login <token>')
-    .description('Authenticate your CLI using the secret token from the web dashboard')
-    .action((token) => {
-        fs.writeFileSync(AUTH_FILE, JSON.stringify({ token }));
-        console.log('✅ Successfully authenticated! You can now publish packages.');
+    .command('login')
+    .description('Login via your browser (NPM style)')
+    .action(() => {
+        const PORT = 8484;
+        const server = http.createServer((req, res) => {
+            if (req.url.startsWith('/callback')) {
+                const urlObj = new URL(req.url, `http://localhost:${PORT}`);
+                const token = urlObj.searchParams.get('token');
+                if (token) {
+                    fs.writeFileSync(AUTH_FILE, JSON.stringify({ token }));
+                    res.writeHead(200, { 'Content-Type': 'text/html' });
+                    res.end('<h1 style="font-family:sans-serif;color:green;text-align:center;margin-top:50px;">✅ Successfully logged into XPM! You can safely close this window.</h1><script>setTimeout(()=>window.close(), 3000)</script>');
+                    console.log('\n✅ Successfully authenticated! You can now publish packages.');
+                    server.close();
+                    process.exit(0);
+                }
+            }
+        });
+        
+        server.listen(PORT, () => {
+            console.log('Opening your browser to log in...');
+            const loginUrl = `${REGISTRY_URL}/auth/cli?port=${PORT}`;
+            const startCmd = process.platform === 'win32' ? 'start' : (process.platform === 'darwin' ? 'open' : 'xdg-open');
+            execSync(`${startCmd} ${loginUrl}`);
+        });
+    });
+
+program
+    .command('whoami')
+    .description('Check which user you are logged in as')
+    .action(async () => {
+        if (!fs.existsSync(AUTH_FILE)) return console.error('❌ You are not logged in. Run: xpm login');
+        const authData = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
+        try {
+            const response = await axios.get(`${REGISTRY_URL}/whoami`, {
+                headers: { 'Authorization': `Bearer ${authData.token}` }
+            });
+            console.log(`✅ Logged in as: ${response.data.username} (${response.data.email})`);
+        } catch (err) {
+            console.error('❌ Your session has expired or is invalid. Please run: xpm login');
+        }
     });
 
 program

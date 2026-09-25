@@ -69,12 +69,32 @@ passport.deserializeUser(async (id, done) => {
 });
 
 // --- AUTH ROUTES ---
+app.get('/auth/cli', (req, res) => {
+    req.session.cliPort = req.query.port;
+    res.redirect('/auth/google');
+});
+
 app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
 app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/' }), (req, res) => {
-    res.redirect('/');
+    if (req.session.cliPort) {
+        const port = req.session.cliPort;
+        delete req.session.cliPort;
+        res.redirect(`http://localhost:${port}/callback?token=${req.user.cliToken}`);
+    } else {
+        res.redirect('/');
+    }
 });
 app.get('/logout', (req, res) => {
     req.logout(() => res.redirect('/'));
+});
+
+app.get('/whoami', async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    const token = authHeader.split(' ')[1];
+    const user = await User.findOne({ cliToken: token });
+    if (!user) return res.status(401).json({ error: 'Invalid token' });
+    res.json({ username: user.displayName, email: user.email });
 });
 
 // --- MULTER SETUP (FOR PACKAGE UPLOADS) ---
