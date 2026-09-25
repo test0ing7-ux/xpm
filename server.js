@@ -1,263 +1,259 @@
+require('dotenv').config();
 const express = require('express');
 const multer = require('multer');
-const fs = require('fs');
 const path = require('path');
+const fs = require('fs');
+const cors = require('cors');
+const mongoose = require('mongoose');
+const session = require('express-session');
+const passport = require('passport');
+const GoogleStrategy = require('passport-google-oauth20').Strategy;
+const crypto = require('crypto');
+
+const User = require('./models/User');
+const Package = require('./models/Package');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 const REGISTRY_DIR = path.join(__dirname, 'registry_data');
-const PUBLIC_DIR = path.join(__dirname, 'public');
 
 if (!fs.existsSync(REGISTRY_DIR)) fs.mkdirSync(REGISTRY_DIR, { recursive: true });
-if (!fs.existsSync(PUBLIC_DIR)) fs.mkdirSync(PUBLIC_DIR, { recursive: true });
 
+// --- MONGODB CONNECTION ---
+mongoose.connect(process.env.MONGO_URI, { useNewUrlParser: true, useUnifiedTopology: true })
+    .then(() => console.log('✅ Connected to MongoDB Atlas'))
+    .catch(err => console.error('❌ MongoDB Connection Error:', err));
+
+// --- MIDDLEWARE ---
+app.use(cors());
+app.use(express.json());
+app.use(session({
+    secret: process.env.SESSION_SECRET || 'xpm_secret',
+    resave: false,
+    saveUninitialized: false
+}));
+app.use(passport.initialize());
+app.use(passport.session());
+
+// --- PASSPORT GOOGLE AUTH ---
+const callbackUrl = process.env.RAILWAY_STATIC_URL 
+    ? `https://${process.env.RAILWAY_STATIC_URL}/auth/google/callback` 
+    : 'http://localhost:3000/auth/google/callback';
+
+passport.use(new GoogleStrategy({
+    clientID: process.env.GOOGLE_CLIENT_ID,
+    clientSecret: process.env.GOOGLE_CLIENT_SECRET,
+    callbackURL: callbackUrl
+}, async (accessToken, refreshToken, profile, done) => {
+    try {
+        let user = await User.findOne({ googleId: profile.id });
+        if (!user) {
+            user = await User.create({
+                googleId: profile.id,
+                email: profile.emails[0].value,
+                displayName: profile.displayName,
+                avatarUrl: profile.photos[0].value,
+                cliToken: crypto.randomBytes(16).toString('hex')
+            });
+        }
+        return done(null, user);
+    } catch (err) {
+        return done(err, null);
+    }
+}));
+
+passport.serializeUser((user, done) => done(null, user.id));
+passport.deserializeUser(async (id, done) => {
+    const user = await User.findById(id);
+    done(null, user);
+});
+
+// --- AUTH ROUTES ---
+app.get('/auth/google', passport.authenticate('google', { scope: ['profile', 'email'] }));
+app.get('/auth/google/callback', passport.authenticate('google', { failureRedirect: '/' }), (req, res) => {
+    res.redirect('/');
+});
+app.get('/logout', (req, res) => {
+    req.logout(() => res.redirect('/'));
+});
+
+// --- MULTER SETUP (FOR PACKAGE UPLOADS) ---
 const storage = multer.diskStorage({
     destination: (req, file, cb) => cb(null, REGISTRY_DIR),
     filename: (req, file, cb) => cb(null, file.originalname)
 });
 const upload = multer({ storage });
 
-// ==========================================
-// 🎨 PROFESSIONAL WEB UI DASHBOARD
-// ==========================================
-app.get('/', (req, res) => {
-    const files = fs.readdirSync(REGISTRY_DIR).filter(f => f.endsWith('.tgz'));
-    
-    let packagesHtml = files.map(file => {
-        const pkgName = file.replace('.tgz', '');
-        return `
-        <div class="pkg-item glass-card p-5 rounded-xl flex flex-col md:flex-row justify-between items-start md:items-center transition hover:border-brand/50 group" data-name="${pkgName}">
-            <div class="mb-4 md:mb-0">
-                <h3 class="font-bold text-xl text-white flex items-center gap-2">
-                    <svg class="w-5 h-5 text-brand" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
-                    ${pkgName}
-                </h3>
-                <p class="text-sm text-gray-400 mt-1">Run instantly from any terminal:</p>
-                <div class="mt-2 inline-flex items-center bg-black border border-white/10 rounded overflow-hidden">
-                    <span class="px-3 py-1.5 text-gray-500 font-mono text-sm border-r border-white/10">$</span>
-                    <code class="px-3 py-1.5 text-green-400 text-sm font-mono tracking-tight">xpm -y ${pkgName}</code>
-                </div>
-            </div>
-            <div class="flex gap-3 w-full md:w-auto">
-                <a href="/download/${file}" class="flex-1 md:flex-none px-4 py-2 bg-white/5 text-white font-medium rounded-lg hover:bg-white/10 transition text-center border border-white/10 flex items-center justify-center gap-2">
-                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                    .tgz
-                </a>
-                <form action="/delete-ui/${file}" method="POST" onsubmit="return confirm('Permanently delete ${file}?');" class="flex-1 md:flex-none">
-                    <button type="submit" class="w-full px-4 py-2 bg-red-500/10 text-red-500 font-medium rounded-lg hover:bg-red-500/20 transition border border-red-500/20 flex items-center justify-center gap-2">
-                        <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path></svg>
-                        Delete
-                    </button>
-                </form>
-            </div>
-        </div>
-        `;
-    }).join('');
+// --- API ROUTES ---
 
-    if (files.length === 0) {
-        packagesHtml = `
-            <div class="text-center py-16 glass-card rounded-2xl border-dashed border-white/20">
-                <div class="w-16 h-16 rounded-full bg-white/5 flex items-center justify-center mx-auto mb-4">
-                    <svg class="w-8 h-8 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="1.5" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
-                </div>
-                <h3 class="text-xl font-bold text-white mb-2">No packages found</h3>
-                <p class="text-gray-400 max-w-md mx-auto">You haven't published any packages to your registry yet. Use the XPM CLI to publish your first package.</p>
-            </div>
-        `;
-    }
-
-    const html = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>XPM | The Native Package Manager</title>
-        <script src="https://cdn.tailwindcss.com"></script>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-        <script>
-            tailwind.config = {
-                theme: {
-                    extend: {
-                        fontFamily: {
-                            sans: ['Inter', 'sans-serif'],
-                            mono: ['JetBrains Mono', 'monospace'],
-                        },
-                        colors: {
-                            brand: '#0070F3',
-                            dark: '#111111',
-                            darker: '#000000',
-                        }
-                    }
-                }
-            }
-        </script>
-        <style>
-            body { background: #000; color: #fff; }
-            .glass-card {
-                background: rgba(255, 255, 255, 0.03);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                backdrop-filter: blur(10px);
-            }
-            .grid-bg {
-                background-size: 40px 40px;
-                background-image: linear-gradient(to right, rgba(255, 255, 255, 0.05) 1px, transparent 1px),
-                                  linear-gradient(to bottom, rgba(255, 255, 255, 0.05) 1px, transparent 1px);
-                mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
-                -webkit-mask-image: linear-gradient(to bottom, black 40%, transparent 100%);
-            }
-        </style>
-    </head>
-    <body class="min-h-screen font-sans selection:bg-brand selection:text-white pb-20">
+// Publish endpoint (Requires CLI Token)
+app.post('/publish', upload.single('package'), async (req, res) => {
+    try {
+        // 1. Auth check
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) {
+            fs.unlinkSync(req.file.path); // delete uploaded file
+            return res.status(401).json({ error: 'Unauthorized. Please login to the CLI using your token.' });
+        }
         
-        <!-- Animated Background Grid -->
-        <div class="fixed inset-0 grid-bg z-[-1] opacity-50"></div>
+        const token = authHeader.split(' ')[1];
+        const user = await User.findOne({ cliToken: token });
+        if (!user) {
+            fs.unlinkSync(req.file.path);
+            return res.status(401).json({ error: 'Invalid CLI Token.' });
+        }
 
-        <!-- Navbar -->
-        <nav class="border-b border-white/10 bg-darker/80 backdrop-blur-md sticky top-0 z-50">
-            <div class="max-w-5xl mx-auto px-6 h-16 flex items-center justify-between">
-                <div class="flex items-center gap-3">
-                    <div class="w-8 h-8 rounded bg-brand flex items-center justify-center font-bold text-white shadow-[0_0_15px_rgba(0,112,243,0.5)]">X</div>
-                    <span class="font-bold text-lg tracking-tight">XPM Registry</span>
-                </div>
-                <div class="flex items-center gap-4">
-                    <span class="text-sm text-gray-400"><span class="w-2 h-2 inline-block rounded-full bg-green-500 mr-2 animate-pulse"></span>System Online</span>
-                </div>
-            </div>
-        </nav>
+        // 2. Parse filename (e.g. godsplan-3.0.2.tgz)
+        const filename = req.file.originalname;
+        const match = filename.match(/^(.*)-(\d+\.\d+\.\d+)\.tgz$/);
+        if (!match) {
+            fs.unlinkSync(req.file.path);
+            return res.status(400).json({ error: 'Invalid package filename format.' });
+        }
 
-        <div class="max-w-5xl mx-auto px-6 mt-16">
-            
-            <!-- Hero Section -->
-            <div class="flex flex-col items-center text-center mb-20 mt-10">
-                <h1 class="text-5xl md:text-6xl font-extrabold tracking-tighter mb-6 bg-gradient-to-r from-white to-gray-500 bg-clip-text text-transparent">
-                    The Global Package Hub
-                </h1>
-                <p class="text-xl text-gray-400 max-w-2xl mb-8">
-                    Lightning fast, native, and built for Windows. Download the XPM tool once and run your code anywhere.
-                </p>
-                
-                <div class="flex flex-col sm:flex-row gap-4 items-center">
-                    <a href="/download-cli" class="bg-white text-black px-6 py-3.5 rounded-full font-bold hover:scale-105 transition-transform flex items-center gap-2 shadow-[0_0_30px_rgba(255,255,255,0.2)]">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2.5" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
-                        Download XPM (Windows)
-                    </a>
-                    
-                    <div class="relative group cursor-pointer" onclick="navigator.clipboard.writeText('winget install xpm'); alert('Copied to clipboard!')">
-                        <div class="absolute -inset-0.5 bg-gradient-to-r from-brand to-purple-600 rounded-full blur opacity-30 group-hover:opacity-70 transition duration-200"></div>
-                        <div class="relative bg-dark px-6 py-3.5 rounded-full border border-white/10 font-mono text-sm flex items-center gap-3">
-                            <span class="text-brand">$</span> <span class="text-gray-200">winget install xpm</span>
-                            <svg class="w-4 h-4 text-gray-500 hover:text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
-                        </div>
-                    </div>
-                </div>
-            </div>
-            
-            <!-- Statistics -->
-            <div class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-16">
-                <div class="glass-card p-6 rounded-2xl flex flex-col items-center justify-center">
-                    <span class="text-3xl font-black text-white">${files.length}</span>
-                    <span class="text-sm text-gray-400 font-medium mt-1">Packages</span>
-                </div>
-                <div class="glass-card p-6 rounded-2xl flex flex-col items-center justify-center">
-                    <span class="text-3xl font-black text-white text-green-400">99.9%</span>
-                    <span class="text-sm text-gray-400 font-medium mt-1">Uptime</span>
-                </div>
-                <div class="glass-card p-6 rounded-2xl flex flex-col items-center justify-center">
-                    <span class="text-3xl font-black text-white text-brand">v1.0.0</span>
-                    <span class="text-sm text-gray-400 font-medium mt-1">Latest Version</span>
-                </div>
-                <div class="glass-card p-6 rounded-2xl flex flex-col items-center justify-center">
-                    <span class="text-3xl font-black text-white text-purple-400">Winget</span>
-                    <span class="text-sm text-gray-400 font-medium mt-1">Global Support</span>
-                </div>
-            </div>
+        const pkgName = match[1];
+        const pkgVersion = match[2];
 
-            <!-- PACKAGE REGISTRY SECTION -->
-            <div class="mb-8 flex justify-between items-end">
-                <div>
-                    <h2 class="text-2xl font-bold tracking-tight">Package Registry</h2>
-                    <p class="text-gray-400 text-sm mt-1">Explore and manage published packages.</p>
-                </div>
-                
-                <div class="relative">
-                    <input type="text" id="searchInput" placeholder="Search packages..." class="bg-white/5 border border-white/10 text-white text-sm rounded-lg focus:ring-brand focus:border-brand block w-64 p-2.5 outline-none transition-all focus:bg-white/10" onkeyup="searchPackages()">
-                    <svg class="w-4 h-4 absolute right-3 top-3 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"></path></svg>
-                </div>
-            </div>
-            
-            <div class="space-y-4" id="packageList">
-                ${packagesHtml}
-            </div>
-        </div>
-
-        <script>
-            function searchPackages() {
-                let input = document.getElementById('searchInput').value.toLowerCase();
-                let packages = document.querySelectorAll('.pkg-item');
-                packages.forEach(pkg => {
-                    let title = pkg.getAttribute('data-name').toLowerCase();
-                    if (title.includes(input)) {
-                        pkg.style.display = "flex";
-                    } else {
-                        pkg.style.display = "none";
-                    }
-                });
+        // 3. Unique Name / Ownership Check
+        let pkg = await Package.findOne({ name: pkgName });
+        if (pkg) {
+            if (pkg.author.toString() !== user._id.toString()) {
+                fs.unlinkSync(req.file.path);
+                return res.status(403).json({ error: `Package name '${pkgName}' is already taken by another user.` });
             }
-        </script>
-    </body>
-    </html>
-    `;
-    res.send(html);
+            // Update existing package
+            pkg.version = pkgVersion;
+            pkg.filename = filename;
+            await pkg.save();
+        } else {
+            // Create new package
+            await Package.create({
+                name: pkgName,
+                version: pkgVersion,
+                author: user._id,
+                filename: filename
+            });
+        }
+
+        res.json({ message: `Package ${pkgName}@${pkgVersion} published successfully!` });
+    } catch (err) {
+        if (req.file && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+        res.status(500).json({ error: 'Server error' });
+    }
 });
 
-// UI Delete action (Browsers use POST for forms)
-app.post('/delete-ui/:filename', (req, res) => {
-    const filePath = path.join(REGISTRY_DIR, req.params.filename);
-    if (fs.existsSync(filePath)) fs.unlinkSync(filePath);
-    res.redirect('/');
-});
-
-
-// ==========================================
-// ⚙️ API ROUTES (Used by the CLI)
-// ==========================================
-app.post('/publish', upload.single('package'), (req, res) => {
-    if (!req.file) return res.status(400).json({ error: 'No package file uploaded.' });
-    res.json({ message: 'Package published successfully!', filename: req.file.filename });
-});
-
-app.get('/packages', (req, res) => {
-    const files = fs.readdirSync(REGISTRY_DIR).filter(f => f.endsWith('.tgz'));
-    res.json({ packages: files });
-});
-
-app.get('/download/:filename', (req, res) => {
+// Download package
+app.get('/download/:filename', async (req, res) => {
     const filePath = path.join(REGISTRY_DIR, req.params.filename);
     if (!fs.existsSync(filePath)) return res.status(404).json({ error: 'Package not found' });
+    
+    // Increment download count safely in background
+    const match = req.params.filename.match(/^(.*)-(\d+\.\d+\.\d+)\.tgz$/);
+    if (match) {
+        Package.findOneAndUpdate({ name: match[1] }, { $inc: { downloads: 1 } }).exec();
+    }
+    
     res.download(filePath);
 });
 
-app.delete('/delete/:filename', (req, res) => {
-    const filePath = path.join(REGISTRY_DIR, req.params.filename);
-    if (fs.existsSync(filePath)) {
-        fs.unlinkSync(filePath);
-        res.json({ message: 'Package deleted.' });
-    } else {
-        res.status(404).json({ error: 'Package not found.' });
-    }
+// List packages (For CLI resolution)
+app.get('/packages', (req, res) => {
+    fs.readdir(REGISTRY_DIR, (err, files) => {
+        if (err) return res.status(500).json({ error: 'Failed to list packages' });
+        const tgzFiles = files.filter(f => f.endsWith('.tgz'));
+        res.json({ packages: tgzFiles });
+    });
 });
 
-// CLI Download Route (Serves the compiled .exe or script)
-app.get('/download-cli', (req, res) => {
-    const exePath = path.join(PUBLIC_DIR, 'xpm.exe');
-    if (fs.existsSync(exePath)) {
-        res.download(exePath, 'xpm.exe');
-    } else {
-        res.send("CLI executable is still building, please try again in a minute.");
+// --- WEB UI (TAILWIND + DARK MODE) ---
+app.get('/', async (req, res) => {
+    const user = req.user;
+    const packages = await Package.find().populate('author', 'displayName avatarUrl').sort({ downloads: -1 });
+
+    let authSection = `
+        <a href="/auth/google" class="bg-indigo-600 hover:bg-indigo-500 text-white font-semibold py-2 px-6 rounded-lg transition-all shadow-lg flex items-center gap-2">
+            <svg class="w-5 h-5" viewBox="0 0 24 24" fill="currentColor"><path d="M12.545 10.239v3.821h5.445c-.712 2.315-2.647 3.972-5.445 3.972-3.332 0-6.033-2.701-6.033-6.032s2.701-6.032 6.033-6.032c1.498 0 2.866.549 3.921 1.453l2.814-2.814C17.503 2.988 15.139 2 12.545 2 7.021 2 2.543 6.477 2.543 12s4.478 10 10.002 10c8.396 0 10.249-7.85 9.426-11.761h-9.426z"/></svg>
+            Sign in with Google
+        </a>
+    `;
+
+    let dashboardSection = '';
+
+    if (user) {
+        authSection = `
+            <div class="flex items-center gap-4">
+                <img src="${user.avatarUrl}" class="w-10 h-10 rounded-full border-2 border-indigo-500">
+                <div class="text-left hidden sm:block">
+                    <p class="text-sm text-gray-300">Welcome,</p>
+                    <p class="font-bold text-white">${user.displayName}</p>
+                </div>
+                <a href="/logout" class="ml-4 text-sm text-gray-400 hover:text-white transition-colors">Logout</a>
+            </div>
+        `;
+
+        dashboardSection = `
+            <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 mb-8 shadow-xl">
+                <h2 class="text-xl font-bold text-white mb-4">🔑 Your Secret CLI Token</h2>
+                <p class="text-gray-400 text-sm mb-4">You need this token to publish packages from your terminal. Do not share it!</p>
+                <div class="flex gap-2">
+                    <input type="text" readonly value="${user.cliToken}" class="flex-1 bg-gray-900 text-green-400 font-mono p-3 rounded-lg border border-gray-700 focus:outline-none">
+                    <button onclick="navigator.clipboard.writeText('${user.cliToken}'); alert('Token Copied!')" class="bg-gray-700 hover:bg-gray-600 text-white px-4 rounded-lg font-bold transition">Copy</button>
+                </div>
+            </div>
+        `;
     }
+
+    const packageHTML = packages.map(pkg => `
+        <div class="bg-gray-800 border border-gray-700 rounded-xl p-5 hover:border-indigo-500 transition-all shadow-md">
+            <div class="flex justify-between items-start mb-3">
+                <h3 class="text-xl font-bold text-indigo-400">${pkg.name}</h3>
+                <span class="bg-gray-700 text-gray-300 text-xs px-2 py-1 rounded font-mono">v${pkg.version}</span>
+            </div>
+            <p class="text-gray-400 text-sm mb-4">Published by ${pkg.author ? pkg.author.displayName : 'Unknown'}</p>
+            <div class="flex justify-between items-center text-sm">
+                <code class="text-gray-400 bg-gray-900 px-3 py-1 rounded-lg">xpm -y ${pkg.name}</code>
+                <span class="text-indigo-400 font-semibold">${pkg.downloads} downloads</span>
+            </div>
+        </div>
+    `).join('') || '<p class="text-gray-500 col-span-3 text-center py-10">No packages published yet.</p>';
+
+    res.send(`
+        <!DOCTYPE html>
+        <html lang="en">
+        <head>
+            <meta charset="UTF-8">
+            <meta name="viewport" content="width=device-width, initial-scale=1.0">
+            <title>XPM Package Registry</title>
+            <script src="https://cdn.tailwindcss.com"></script>
+        </head>
+        <body class="bg-gray-900 text-gray-100 min-h-screen font-sans">
+            <nav class="bg-gray-900/80 backdrop-blur-md border-b border-gray-800 sticky top-0 z-50">
+                <div class="max-w-6xl mx-auto px-6 py-4 flex justify-between items-center">
+                    <div class="flex items-center gap-3">
+                        <div class="w-10 h-10 bg-indigo-600 rounded-lg flex items-center justify-center font-bold text-xl shadow-lg shadow-indigo-500/20">X</div>
+                        <h1 class="text-2xl font-extrabold tracking-tight">XPM <span class="text-indigo-500">Registry</span></h1>
+                    </div>
+                    ${authSection}
+                </div>
+            </nav>
+
+            <main class="max-w-6xl mx-auto px-6 py-12">
+                ${dashboardSection}
+
+                <div class="mb-8 flex justify-between items-end">
+                    <div>
+                        <h2 class="text-3xl font-bold mb-2">Explore Packages</h2>
+                        <p class="text-gray-400">Discover and run global CLI tools instantly.</p>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                    ${packageHTML}
+                </div>
+            </main>
+        </body>
+        </html>
+    `);
 });
 
-app.listen(PORT, () => {
-    console.log(`🚀 XPM Registry Server running on port ${PORT}`);
-});
+app.listen(PORT, () => console.log(\`🚀 XPM Server running on port \${PORT}\`));

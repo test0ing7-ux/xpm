@@ -15,6 +15,7 @@ const MODULES_DIR = path.join(process.cwd(), 'xpm_modules');
 const CONFIG_FILE = path.join(process.cwd(), 'xpm.json');
 const PKG_JSON = path.join(process.cwd(), 'package.json');
 const INSTALL_DIR = path.join(os.homedir(), '.xpm-bin');
+const AUTH_FILE = path.join(os.homedir(), '.xpm-auth.json');
 
 if (!fs.existsSync(CACHE_DIR)) fs.mkdirSync(CACHE_DIR, { recursive: true });
 
@@ -25,7 +26,6 @@ if (process.argv.length === 2 && process.pkg) {
     const currentExePath = process.execPath.toLowerCase();
     const targetExePath = path.join(INSTALL_DIR, 'xpm.exe').toLowerCase();
 
-    // If the user is running the .exe from their Downloads folder (not installed yet)
     if (currentExePath !== targetExePath) {
         console.log("==================================================");
         console.log("🚀 Welcome to the XPM Global Installer!");
@@ -40,7 +40,6 @@ if (process.argv.length === 2 && process.pkg) {
             
             console.log("⚙️  Setting up global PATH variable...");
             
-            // Get current User PATH and append XPM folder if it's not already there
             const userPath = execSync('powershell -NoProfile -Command "[Environment]::GetEnvironmentVariable(\'Path\', \'User\')"').toString().trim();
             if (!userPath.toLowerCase().includes(INSTALL_DIR.toLowerCase())) {
                 const newPath = userPath ? `${userPath};${INSTALL_DIR}` : INSTALL_DIR;
@@ -68,10 +67,17 @@ program
     .option('-y, --yes', 'Skip prompts and run automatically')
     .version('1.0.0');
 
-// Fix: Don't use default command if length is 2, just show help
 if (process.argv.length === 2) {
     program.help();
 }
+
+program
+    .command('login <token>')
+    .description('Authenticate your CLI using the secret token from the web dashboard')
+    .action((token) => {
+        fs.writeFileSync(AUTH_FILE, JSON.stringify({ token }));
+        console.log('✅ Successfully authenticated! You can now publish packages.');
+    });
 
 program
     .command('init')
@@ -96,6 +102,11 @@ program
     .command('publish')
     .description('Publish the current package to the remote registry')
     .action(async () => {
+        if (!fs.existsSync(AUTH_FILE)) {
+            return console.error('❌ You are not logged in! Get your CLI token from https://xpm.up.railway.app and run: xpm login <token>');
+        }
+        const authData = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
+
         const configFile = fs.existsSync(PKG_JSON) ? PKG_JSON : (fs.existsSync(CONFIG_FILE) ? CONFIG_FILE : null);
         if (!configFile) return console.error('No package.json or xpm.json found.');
         
@@ -116,7 +127,10 @@ program
             formData.append('package', fs.createReadStream(tempTarPath), tarballName);
             
             const response = await axios.post(`${REGISTRY_URL}/publish`, formData, {
-                headers: formData.getHeaders()
+                headers: {
+                    ...formData.getHeaders(),
+                    'Authorization': `Bearer ${authData.token}`
+                }
             });
             console.log('✅ ' + response.data.message);
         } catch (err) {
@@ -147,7 +161,6 @@ program
         catch(err) { console.error(`Script '${scriptName}' failed.`); }
     });
 
-// Helper function to download and extract
 async function downloadAndExtract(pkg, destFolder) {
     let [name, version] = pkg.includes('@') ? pkg.split('@') : [pkg, null];
     
@@ -180,7 +193,6 @@ async function downloadAndExtract(pkg, destFolder) {
     await tar.x({ file: tempTarPath, cwd: destFolder });
     fs.unlinkSync(tempTarPath);
 
-    // DEPENDENCY INSTALLATION LOGIC
     const pkgJsonPath = path.join(destFolder, 'package.json');
     if (fs.existsSync(pkgJsonPath)) {
         const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
@@ -195,12 +207,11 @@ async function downloadAndExtract(pkg, destFolder) {
     }
 }
 
-// NPX-style execution (Default command)
 program
     .command('exec <pkg>', { isDefault: true })
     .description('Download and run a package instantly (like npx)')
     .action(async (pkg) => {
-        if (['init', 'publish', 'install', 'run', 'delete'].includes(pkg)) return;
+        if (['init', 'publish', 'install', 'run', 'delete', 'login'].includes(pkg)) return;
 
         let name = pkg.split('@')[0];
         const cacheDest = path.join(CACHE_DIR, name);
