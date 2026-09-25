@@ -198,7 +198,7 @@ program
 program
     .command('install <pkg>')
     .description('Install a package')
-    .action(async (pkg) => {
+    .action(async (pkg, args) => {
         await downloadAndExtract(pkg, path.join(MODULES_DIR, pkg.split('@')[0]));
         console.log(`✅ Successfully installed ${pkg} into xpm_modules/`);
     });
@@ -262,8 +262,13 @@ async function downloadAndExtract(pkg, destFolder) {
     }
 }
 
+program.allowUnknownOption();
+program.option('-y, --yes', 'Skip prompts');
+
 program
-    .command('exec <pkg>', { isDefault: true })
+    .command('exec <pkg> [args...]')
+    .isDefault(true)
+    .allowUnknownOption()
     .description('Download and run a package instantly (like npx)')
     .action(async (pkg) => {
         if (['init', 'publish', 'install', 'run', 'delete', 'login'].includes(pkg)) return;
@@ -289,9 +294,10 @@ program
             
             if (process.pkg && scriptToRun.startsWith('node ')) {
                 const targetFile = scriptToRun.replace('node ', '').trim();
-                spawnSync(process.execPath, [targetFile], { stdio: 'inherit', cwd: cacheDest });
+                spawnSync(process.execPath, [targetFile, ...(args || [])], { stdio: 'inherit', cwd: cacheDest });
             } else {
-                execSync(scriptToRun, { stdio: 'inherit', cwd: cacheDest });
+                const extraArgs = args && args.length > 0 ? ' ' + args.join(' ') : '';
+                execSync(scriptToRun + extraArgs, { stdio: 'inherit', cwd: cacheDest });
             }
             
         } catch (err) {
@@ -299,8 +305,26 @@ program
         }
     });
 
+
+program
+    .command('delete <pkg>')
+    .description('Delete a package from the registry')
+    .action(async (pkg) => {
+        if (!fs.existsSync(AUTH_FILE)) return console.error('❌ You are not logged in!');
+        const authData = JSON.parse(fs.readFileSync(AUTH_FILE, 'utf-8'));
+        try {
+            const response = await axios.delete(`${REGISTRY_URL}/package/${pkg}`, {
+                headers: { 'Authorization': `Bearer ${authData.token}` }
+            });
+            console.log('✅ ' + response.data.message);
+        } catch (err) {
+            console.error('❌ Delete failed:', err.response ? err.response.data.error : err.message);
+        }
+    });
+
 program
     .command('info <package>')
+    .alias('view')
     .description('View details about a package')
     .action(async (pkgName) => {
         try {
@@ -336,7 +360,7 @@ program.configureHelp({
 Usage: xpm <command>
 
 where <command> is one of:
-    docs, exec, help, info, init, install, login, publish, whoami
+    delete, docs, exec, help, info, init, install, login, publish, view, whoami
 
 xpm <command> -h  quick help on <command>
 xpm help <term>   search for help on <term>

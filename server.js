@@ -140,7 +140,28 @@ app.post('/publish', upload.single('package'), async (req, res) => {
         res.json({ message: `Package ${pkgName}@${pkgVersion} published successfully!` });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: 'Server error' });
+        res.status(500).json({ error: err.message || 'Server error' });
+    }
+});
+
+// Delete package
+app.delete('/package/:name', async (req, res) => {
+    try {
+        const authHeader = req.headers.authorization;
+        if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+        
+        const token = authHeader.split(' ')[1];
+        const user = await User.findOne({ cliToken: token });
+        if (!user) return res.status(401).json({ error: 'Invalid token' });
+
+        const pkg = await Package.findOne({ name: req.params.name });
+        if (!pkg) return res.status(404).json({ error: 'Package not found' });
+        if (pkg.author.toString() !== user._id.toString()) return res.status(403).json({ error: 'You are not the owner of this package.' });
+
+        await Package.deleteOne({ _id: pkg._id });
+        res.json({ message: `Package ${pkg.name} deleted successfully.` });
+    } catch (err) {
+        res.status(500).json({ error: err.message });
     }
 });
 
