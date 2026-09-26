@@ -226,6 +226,31 @@ app.get('/packages', async (req, res) => {
     }
 });
 
+
+// Delete Account
+app.delete('/account', async (req, res) => {
+    if (!req.user) return res.status(401).json({ error: 'Unauthorized' });
+    
+    try {
+        const userPackages = await Package.find({ author: req.user._id });
+        
+        for (const pkg of userPackages) {
+            if (pkg.tarballId) {
+                try { await gfs.delete(pkg.tarballId); } catch(e) {}
+            }
+        }
+        
+        await Package.deleteMany({ author: req.user._id });
+        await User.deleteOne({ _id: req.user._id });
+        
+        req.logout(() => {
+            res.json({ message: 'Account and all packages deleted successfully.' });
+        });
+    } catch (err) {
+        res.status(500).json({ error: 'Failed to delete account' });
+    }
+});
+
 // --- WEB UI (PROFESSIONAL VERCEL/STRIPE AESTHETIC) ---
 const getLayout = require('./views/layout');
 const getHomeView = require('./views/home');

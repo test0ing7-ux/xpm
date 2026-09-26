@@ -80,7 +80,7 @@ module.exports = function getProfileView(user, userPackages) {
             </div>
 
             <!-- Main: Package Manager -->
-            <div class="lg:col-span-2">
+            <div class="lg:col-span-2 space-y-6">
                 <div class="bg-white rounded-2xl border border-gray-200 shadow-sm overflow-hidden">
                     <div class="px-6 py-5 border-b border-gray-200 flex items-center justify-between bg-gray-50/50">
                         <h2 class="text-lg font-bold text-gray-900 flex items-center gap-2">
@@ -107,6 +107,23 @@ module.exports = function getProfileView(user, userPackages) {
                         </table>
                     </div>
                 </div>
+
+                <!-- Danger Zone -->
+                <div class="bg-white rounded-2xl border border-red-200 shadow-sm overflow-hidden mt-8">
+                    <div class="px-6 py-5 border-b border-red-100 flex items-center gap-2 bg-red-50/50">
+                        <i data-lucide="alert-triangle" class="w-5 h-5 text-red-500"></i>
+                        <h2 class="text-lg font-bold text-red-700">Danger Zone</h2>
+                    </div>
+                    <div class="p-6 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                        <div>
+                            <h3 class="font-bold text-gray-900">Delete Account</h3>
+                            <p class="text-sm text-gray-500">Permanently delete your account and all of your packages. This action cannot be undone.</p>
+                        </div>
+                        <button onclick="deleteAccount('${user.email}')" class="shrink-0 bg-red-50 text-red-600 border border-red-200 hover:bg-red-600 hover:text-white font-semibold px-4 py-2 rounded-lg transition-all text-sm flex items-center gap-2">
+                            <i data-lucide="trash-2" class="w-4 h-4"></i> Delete Account
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -115,9 +132,6 @@ module.exports = function getProfileView(user, userPackages) {
                 if (!confirm('Are you absolutely sure you want to permanently delete ' + pkgName + '? This action cannot be undone.')) return;
                 
                 try {
-                    // Since UI handles it, we can use the backend session instead of CLI token!
-                    // Wait, our backend DELETE /package/:name route expects Authorization header with CLI token.
-                    // We can pass the CLI token from the UI since it's injected here.
                     const token = document.getElementById('cliToken').value;
                     const res = await fetch('/package/' + pkgName, {
                         method: 'DELETE',
@@ -132,6 +146,31 @@ module.exports = function getProfileView(user, userPackages) {
                     }
                 } catch(e) {
                     alert('Failed to delete package.');
+                }
+            }
+
+            async function deleteAccount(userEmail) {
+                const input = prompt('Are you absolutely sure you want to permanently delete your account?\\n\\nType your email (' + userEmail + ') to confirm:');
+                if (input !== userEmail) {
+                    if (input !== null) alert('Email did not match. Account deletion cancelled.');
+                    return;
+                }
+                
+                try {
+                    const token = document.getElementById('cliToken').value;
+                    const res = await fetch('/account', {
+                        method: 'DELETE',
+                        headers: { 'Authorization': 'Bearer ' + token }
+                    });
+                    
+                    if (res.ok) {
+                        window.location.href = '/';
+                    } else {
+                        const data = await res.json();
+                        alert('Error: ' + data.error);
+                    }
+                } catch(e) {
+                    alert('Failed to delete account.');
                 }
             }
         </script>
