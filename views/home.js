@@ -10,10 +10,10 @@ module.exports = function getHomeView(packages, user) {
             </div>
             <p class="text-gray-500 text-sm mb-5 line-clamp-2 h-10">${pkg.description || 'A powerful executable distributed via XPM.'}</p>
             <div class="flex items-center justify-between mt-auto pt-4 border-t border-gray-100">
-                <div class="flex items-center gap-2">
+                <a href="${pkg.author?.username ? '/user/' + pkg.author.username : '#'}" class="flex items-center gap-2 hover:opacity-80 transition-opacity" onclick="event.stopPropagation();">
                     <img src="${pkg.author?.avatarUrl || 'https://ui-avatars.com/api/?name=Unknown'}" class="w-6 h-6 rounded-full border border-gray-200">
-                    <span class="text-xs font-medium text-gray-600">${pkg.author?.displayName || 'Unknown Author'}</span>
-                </div>
+                    <span class="text-xs font-medium text-gray-600 hover:text-indigo-600 transition-colors">${pkg.author?.username ? '@' + pkg.author.username : (pkg.author?.displayName || 'Unknown Author')}</span>
+                </a>
                 <div class="flex items-center gap-1.5 text-gray-400 text-xs font-medium">
                     <i data-lucide="download" class="w-3.5 h-3.5"></i>
                     ${pkg.downloads}

@@ -255,6 +255,43 @@ app.delete('/account', async (req, res) => {
     }
 });
 
+// Username routes
+app.post('/profile/username', express.json(), async (req, res) => {
+    const authHeader = req.headers.authorization;
+    if (!authHeader || !authHeader.startsWith('Bearer ')) return res.status(401).json({ error: 'Unauthorized' });
+    
+    const token = authHeader.split(' ')[1];
+    const user = await User.findOne({ cliToken: token });
+    if (!user) return res.status(401).json({ error: 'Invalid token' });
+    
+    const { username } = req.body;
+    if (!username || !/^[a-zA-Z0-9_-]{3,20}$/.test(username)) {
+        return res.status(400).json({ error: 'Invalid username format (3-20 chars, letters/numbers/_-)' });
+    }
+    
+    if (user.username) {
+        return res.status(400).json({ error: 'Username already set' });
+    }
+    
+    const existing = await User.findOne({ username: { $regex: new RegExp('^' + username + '$', 'i') } });
+    if (existing) {
+        return res.status(400).json({ error: 'Username already taken' });
+    }
+    
+    user.username = username;
+    await user.save();
+    res.json({ success: true, username: user.username });
+});
+
+const getUserView = require('./views/user');
+app.get('/user/:username', async (req, res) => {
+    const userProfile = await User.findOne({ username: { $regex: new RegExp('^' + req.params.username + '$', 'i') } });
+    if (!userProfile) return res.status(404).send('User not found');
+    
+    const packages = await Package.find({ author: userProfile._id }).sort({ downloads: -1 });
+    res.send(getLayout(getUserView(userProfile, packages), req.user));
+});
+
 // --- WEB UI (PROFESSIONAL VERCEL/STRIPE AESTHETIC) ---
 const getLayout = require('./views/layout');
 const getHomeView = require('./views/home');

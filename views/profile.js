@@ -32,10 +32,19 @@ module.exports = function getProfileView(user, userPackages) {
                 <div class="flex items-center gap-5">
                     <img src="${user.avatarUrl}" class="w-20 h-20 rounded-full border-4 border-white shadow-lg object-cover">
                     <div>
-                        <h1 class="text-3xl font-bold text-gray-900 tracking-tight">${user.displayName}</h1>
+                        <div class="flex items-center gap-3">
+                            <h1 class="text-3xl font-bold text-gray-900 tracking-tight">${user.displayName}</h1>
+                            ${user.username ? `<a href="/user/${user.username}" class="bg-gray-100 text-gray-700 text-xs font-bold px-2 py-1 rounded-md hover:bg-gray-200 transition-colors">@${user.username}</a>` : ''}
+                        </div>
                         <p class="text-gray-500 flex items-center gap-2 mt-1">
                             <i data-lucide="mail" class="w-4 h-4"></i> ${user.email}
                         </p>
+                        ${!user.username ? `
+                        <div class="mt-3 flex items-center gap-2">
+                            <input type="text" id="usernameInput" placeholder="Choose a username..." class="border border-gray-300 rounded-md px-3 py-1.5 text-sm focus:outline-none focus:border-indigo-500 focus:ring-1 focus:ring-indigo-500">
+                            <button onclick="setUsername()" class="bg-indigo-600 hover:bg-indigo-700 text-white font-medium px-3 py-1.5 rounded-md text-sm transition-colors shadow-sm">Save</button>
+                        </div>
+                        ` : ''}
                     </div>
                 </div>
                 <div>
@@ -128,6 +137,33 @@ module.exports = function getProfileView(user, userPackages) {
         </div>
 
         <script>
+            async function setUsername() {
+                const username = document.getElementById('usernameInput').value.trim();
+                if (!username) return alert('Please enter a username');
+                if (!/^[a-zA-Z0-9_-]+$/.test(username)) return alert('Username can only contain letters, numbers, hyphens, and underscores.');
+                
+                try {
+                    const token = document.getElementById('cliToken').value;
+                    const res = await fetch('/profile/username', {
+                        method: 'POST',
+                        headers: { 
+                            'Content-Type': 'application/json',
+                            'Authorization': 'Bearer ' + token
+                        },
+                        body: JSON.stringify({ username })
+                    });
+                    
+                    if (res.ok) {
+                        window.location.reload();
+                    } else {
+                        const data = await res.json();
+                        alert('Error: ' + data.error);
+                    }
+                } catch(e) {
+                    alert('Failed to set username.');
+                }
+            }
+
             async function deletePackage(pkgName) {
                 if (!confirm('Are you absolutely sure you want to permanently delete ' + pkgName + '? This action cannot be undone.')) return;
                 

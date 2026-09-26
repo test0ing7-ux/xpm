@@ -129,13 +129,13 @@ module.exports = function getPackageView(pkg, activeTab = 'readme', requestedFil
 
                         <div class="pt-2">
                             <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">Publisher</h3>
-                            <div class="flex items-center gap-3 bg-gray-50 p-3 rounded-xl border border-gray-100">
+                            <a href="${pkg.author?.username ? '/user/' + pkg.author.username : '#'}" class="flex items-center gap-3 bg-gray-50 hover:bg-gray-100 p-3 rounded-xl border border-gray-100 transition-colors">
                                 <img src="${pkg.author?.avatarUrl || 'https://ui-avatars.com/api/?name=Unknown'}" class="w-10 h-10 rounded-full border border-gray-200">
                                 <div>
                                     <span class="text-sm font-bold text-gray-900 block">${pkg.author?.displayName || 'Unknown'}</span>
-                                    <span class="text-xs text-gray-500 block">Verified Author</span>
+                                    <span class="text-xs text-gray-500 block">${pkg.author?.username ? '@' + pkg.author.username : 'Verified Author'}</span>
                                 </div>
-                            </div>
+                            </a>
                         </div>
                     </div>
                 </div>
