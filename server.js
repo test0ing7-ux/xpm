@@ -54,8 +54,12 @@ passport.use(new GoogleStrategy({
                 googleId: profile.id,
                 email: profile.emails[0].value,
                 displayName: profile.displayName,
-                avatarUrl: profile.photos[0].value
+                avatarUrl: profile.photos[0].value,
+                cliToken: 'xpm_' + crypto.randomBytes(24).toString('hex')
             });
+        } else if (!user.cliToken) {
+            user.cliToken = 'xpm_' + crypto.randomBytes(24).toString('hex');
+            await user.save();
         }
         return done(null, user);
     } catch (err) {
