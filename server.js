@@ -158,6 +158,7 @@ app.delete('/package/:name', async (req, res) => {
         if (!pkg) return res.status(404).json({ error: 'Package not found' });
         if (pkg.author.toString() !== user._id.toString()) return res.status(403).json({ error: 'You are not the owner of this package.' });
 
+        if (pkg.tarballId) { try { await gfs.delete(pkg.tarballId); } catch(e){} }
         await Package.deleteOne({ _id: pkg._id });
         res.json({ message: `Package ${pkg.name} deleted successfully.` });
     } catch (err) {

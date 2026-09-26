@@ -8,7 +8,8 @@ const PackageSchema = new mongoose.Schema({
     filename: { type: String, required: true }, // The .tgz filename
     downloads: { type: Number, default: 0 },
     readme: { type: String },
-    tarball: { type: Buffer }
+    tarballId: { type: mongoose.Schema.Types.ObjectId },
+    tarballSize: { type: Number, default: 0 }
 }, { timestamps: true });
 
 module.exports = mongoose.model('Package', PackageSchema);
