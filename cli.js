@@ -266,11 +266,10 @@ program.allowUnknownOption();
 program.option('-y, --yes', 'Skip prompts');
 
 program
-    .command('exec <pkg> [args...]')
-    .isDefault(true)
+    .command('exec <pkg> [args...]', { isDefault: true })
     .allowUnknownOption()
     .description('Download and run a package instantly (like npx)')
-    .action(async (pkg) => {
+    .action(async (pkg, args) => {
         if (['init', 'publish', 'install', 'run', 'delete', 'login'].includes(pkg)) return;
 
         let name = pkg.split('@')[0];
