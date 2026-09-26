@@ -2,6 +2,7 @@ require('dotenv').config();
 const express = require('express');
 const fs = require('fs');
 const path = require('path');
+const os = require('os');
 const multer = require('multer');
 const mongoose = require('mongoose');
 const passport = require('passport');
@@ -21,9 +22,15 @@ app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
 // --- MONGODB CONNECTION ---
+let gfs;
 mongoose.connect(process.env.MONGO_URI)
     .then(() => console.log('✅ Connected to MongoDB Atlas'))
     .catch(err => console.error('❌ MongoDB Connection Error:', err));
+
+mongoose.connection.once('open', () => {
+    gfs = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'tarballs' });
+    console.log('✅ GridFS Bucket ready');
+});
 
 // --- SESSION & PASSPORT SETUP ---
 app.use(session({
@@ -76,6 +83,7 @@ app.get('/auth/google/callback', passport.authenticate('google', { failureRedire
         res.redirect('/');
     }
 });
+
 app.get('/logout', (req, res) => {
     req.logout(() => res.redirect('/'));
 });
@@ -89,9 +97,8 @@ app.get('/whoami', async (req, res) => {
     res.json({ username: user.displayName, email: user.email });
 });
 
-// --- MULTER SETUP (MEMORY STORAGE FOR STATELESS RAILWAY DEPLOYS) ---
-const storage = multer.memoryStorage();
-const upload = multer({ storage: storage });
+// --- MULTER SETUP (TEMP DISK FOR GRIDFS STREAMING) ---
+const upload = multer({ dest: os.tmpdir() });
 
 // --- API ROUTES ---
 
@@ -123,21 +130,40 @@ app.post('/publish', upload.single('package'), async (req, res) => {
             }
             pkg.version = pkgVersion;
             pkg.filename = filename;
-            pkg.tarball = req.file.buffer;
             if (req.body.readme) pkg.readme = req.body.readme;
-            await pkg.save();
         } else {
-            await Package.create({
+            pkg = new Package({
                 name: pkgName,
                 version: pkgVersion,
                 author: user._id,
                 filename: filename,
-                tarball: req.file.buffer,
                 readme: req.body.readme || ''
             });
         }
 
-        res.json({ message: `Package ${pkgName}@${pkgVersion} published successfully!` });
+        // Delete old GridFS file if it exists
+        if (pkg.tarballId) {
+            try { await gfs.delete(pkg.tarballId); } catch(e) {}
+        }
+
+        // Upload to GridFS
+        const uploadStream = gfs.openUploadStream(filename);
+        const readStream = fs.createReadStream(req.file.path);
+        readStream.pipe(uploadStream);
+        
+        await new Promise((resolve, reject) => {
+            uploadStream.on('finish', resolve);
+            uploadStream.on('error', reject);
+        });
+
+        pkg.tarballId = uploadStream.id;
+        pkg.tarballSize = req.file.size;
+        await pkg.save();
+        
+        // Clean up temp file
+        fs.unlinkSync(req.file.path);
+
+        res.json({ message: `Package ${pkgName}@${pkgVersion} published successfully (Size: ${(req.file.size/1024/1024).toFixed(2)} MB)!` });
     } catch (err) {
         console.error(err);
         res.status(500).json({ error: err.message || 'Server error' });
@@ -158,7 +184,9 @@ app.delete('/package/:name', async (req, res) => {
         if (!pkg) return res.status(404).json({ error: 'Package not found' });
         if (pkg.author.toString() !== user._id.toString()) return res.status(403).json({ error: 'You are not the owner of this package.' });
 
-        if (pkg.tarballId) { try { await gfs.delete(pkg.tarballId); } catch(e){} }
+        if (pkg.tarballId) {
+            try { await gfs.delete(pkg.tarballId); } catch(e) {}
+        }
         await Package.deleteOne({ _id: pkg._id });
         res.json({ message: `Package ${pkg.name} deleted successfully.` });
     } catch (err) {
@@ -172,7 +200,7 @@ app.get('/download/:filename', async (req, res) => {
     if (!match) return res.status(400).send('Invalid filename format');
     
     const pkg = await Package.findOne({ name: match[1] });
-    if (!pkg || !pkg.tarball) return res.status(404).json({ error: 'Package not found' });
+    if (!pkg || !pkg.tarballId) return res.status(404).json({ error: 'Package not found' });
     
     // Increment downloads stat
     pkg.downloads += 1;
@@ -180,7 +208,10 @@ app.get('/download/:filename', async (req, res) => {
     
     res.set('Content-Type', 'application/gzip');
     res.set('Content-Disposition', `attachment; filename="${req.params.filename}"`);
-    res.send(pkg.tarball);
+    
+    const downloadStream = gfs.openDownloadStream(pkg.tarballId);
+    downloadStream.on('error', () => res.status(404).json({ error: 'File stream not found in GridFS' }));
+    downloadStream.pipe(res);
 });
 
 // List packages (For CLI resolution)
@@ -327,7 +358,7 @@ app.get('/', async (req, res) => {
                 <div class="bg-gray-900 text-white pl-6 pr-2 py-2 rounded-full flex items-center gap-4 shadow-xl border border-gray-800">
                     <code class="font-mono text-sm text-gray-300">winget install test0ing7-ux.xpm</code>
                     <button onclick="navigator.clipboard.writeText('winget install test0ing7-ux.xpm')" class="bg-white/10 hover:bg-white/20 p-2 rounded-full transition-colors">
-                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
+                        <svg class="w-4 h-4 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z"></path></svg>
                     </button>
                 </div>
             </div>
@@ -401,8 +432,8 @@ app.get('/package/:name', async (req, res) => {
                                 <p class="text-sm font-bold text-gray-900">${pkg.version}</p>
                             </div>
                             <div>
-                                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">License</h3>
-                                <p class="text-sm font-bold text-gray-900">MIT</p>
+                                <h3 class="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-1">Size</h3>
+                                <p class="text-sm font-bold text-gray-900">${pkg.tarballSize ? (pkg.tarballSize/1024/1024).toFixed(2) + ' MB' : '0.00 MB'}</p>
                             </div>
                         </div>
 
