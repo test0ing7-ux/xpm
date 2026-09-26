@@ -9,7 +9,9 @@ const PackageSchema = new mongoose.Schema({
     downloads: { type: Number, default: 0 },
     readme: { type: String },
     tarballId: { type: mongoose.Schema.Types.ObjectId },
-    tarballSize: { type: Number, default: 0 }
+    tarballSize: { type: Number, default: 0 },
+    dependencies: { type: mongoose.Schema.Types.Mixed, default: {} },
+    fileTree: [{ type: String }]
 }, { timestamps: true });
 
 module.exports = mongoose.model('Package', PackageSchema);

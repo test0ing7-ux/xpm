@@ -239,10 +239,91 @@ app.get('/', async (req, res) => {
     res.send(getLayout(getHomeView(packages, req.user), req.user));
 });
 
+const tar = require('tar');
 app.get('/package/:name', async (req, res) => {
     const pkg = await Package.findOne({ name: req.params.name }).populate('author');
     if (!pkg) return res.status(404).send('Package not found');
-    res.send(getLayout(getPackageView(pkg), req.user));
+    
+    const tab = req.query.tab || 'readme';
+    let fileContent = null;
+    let requestedFile = req.query.file || null;
+    
+    if (tab === 'code' || tab === 'dependencies') {
+        let needsExtract = false;
+        
+        // If we don't have fileTree or dependencies cached, or we need to read a specific file
+        if (!pkg.fileTree || pkg.fileTree.length === 0 || !pkg.dependencies || requestedFile) {
+            needsExtract = true;
+        }
+
+        if (needsExtract && pkg.tarballId) {
+            const tmpZip = path.join(os.tmpdir(), 'xpm_' + pkg.tarballId + '.tgz');
+            const extractDir = path.join(os.tmpdir(), 'xpm_ext_' + pkg.tarballId);
+            
+            try {
+                // Download
+                const downloadStream = gfs.openDownloadStream(pkg.tarballId);
+                const writeStream = fs.createWriteStream(tmpZip);
+                downloadStream.pipe(writeStream);
+                
+                await new Promise((resolve, reject) => {
+                    writeStream.on('finish', resolve);
+                    writeStream.on('error', reject);
+                });
+                
+                // Extract
+                if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
+                fs.mkdirSync(extractDir, { recursive: true });
+                await tar.x({ file: tmpZip, cwd: extractDir });
+                
+                // Cache Tree and Dependencies
+                if (!pkg.fileTree || pkg.fileTree.length === 0) {
+                    const walkSync = (dir, filelist = [], base = '') => {
+                        const files = fs.readdirSync(dir);
+                        for (const file of files) {
+                            const filepath = path.join(dir, file);
+                            const relative = path.join(base, file).replace(/\\/g, '/');
+                            if (fs.statSync(filepath).isDirectory()) {
+                                filelist = walkSync(filepath, filelist, relative);
+                            } else {
+                                filelist.push(relative);
+                            }
+                        }
+                        return filelist;
+                    };
+                    pkg.fileTree = walkSync(extractDir);
+                    
+                    let pkgJsonPath = path.join(extractDir, 'package.json');
+                    if (fs.existsSync(pkgJsonPath)) {
+                        const pkgJson = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf-8'));
+                        pkg.dependencies = pkgJson.dependencies || {};
+                    }
+                    await pkg.save();
+                }
+
+                // Read specific file content
+                if (requestedFile) {
+                    const targetFile = path.join(extractDir, requestedFile);
+                    if (fs.existsSync(targetFile)) {
+                        // Ensure it's not a huge binary
+                        const stat = fs.statSync(targetFile);
+                        if (stat.size < 500 * 1024) { // < 500KB
+                            fileContent = fs.readFileSync(targetFile, 'utf-8');
+                            // Simple binary check
+                            if (fileContent.includes('\x00')) fileContent = null;
+                        }
+                    }
+                }
+            } catch (err) {
+                console.error('Extraction error:', err);
+            } finally {
+                if (fs.existsSync(tmpZip)) fs.unlinkSync(tmpZip);
+                if (fs.existsSync(extractDir)) fs.rmSync(extractDir, { recursive: true, force: true });
+            }
+        }
+    }
+    
+    res.send(getLayout(getPackageView(pkg, tab, requestedFile, fileContent), req.user));
 });
 
 app.get('/search', async (req, res) => {
