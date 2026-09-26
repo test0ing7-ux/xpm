@@ -1,6 +1,6 @@
 module.exports = function getHomeView(packages, user) {
     const packageCards = packages.map(pkg => `
-        <a href="/package/${pkg.name}" class="group block bg-white border border-gray-200 rounded-xl p-5 hover:shadow-xl hover:border-indigo-200 transition-all duration-300 transform hover:-translate-y-1">
+        <div onclick="window.location.href='/package/${pkg.name}'" class="cursor-pointer group block bg-white border border-gray-200 rounded-xl p-5 hover:shadow-xl hover:border-indigo-200 transition-all duration-300 transform hover:-translate-y-1">
             <div class="flex justify-between items-start mb-3">
                 <h3 class="text-lg font-bold text-gray-900 group-hover:text-indigo-600 transition-colors flex items-center gap-2">
                     <i data-lucide="box" class="w-4 h-4 text-gray-400 group-hover:text-indigo-500 transition-colors"></i>
@@ -19,7 +19,7 @@ module.exports = function getHomeView(packages, user) {
                     ${pkg.downloads}
                 </div>
             </div>
-        </a>
+        </div>
     `).join('') || '<div class="col-span-full text-center py-24 text-gray-400 font-medium">No packages published yet. Be the first!</div>';
 
     return `
