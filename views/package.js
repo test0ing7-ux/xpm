@@ -132,8 +132,8 @@ module.exports = function getPackageView(pkg, activeTab = 'readme', requestedFil
                             <a href="${pkg.author?.username ? '/user/' + pkg.author.username : '#'}" class="flex items-center gap-3 bg-gray-50 hover:bg-gray-100 p-3 rounded-xl border border-gray-100 transition-colors">
                                 <img src="${pkg.author?.avatarUrl || 'https://ui-avatars.com/api/?name=Unknown'}" class="w-10 h-10 rounded-full border border-gray-200">
                                 <div>
-                                    <span class="text-sm font-bold text-gray-900 block">${pkg.author?.displayName || 'Unknown'}</span>
-                                    <span class="text-xs text-gray-500 block">${pkg.author?.username ? '@' + pkg.author.username : 'Verified Author'}</span>
+                                    <span class="text-sm font-bold text-gray-900 block">${pkg.author?.username ? '@' + pkg.author.username : 'Anonymous Publisher'}</span>
+                                    <span class="text-xs text-gray-500 block">Verified Author</span>
                                 </div>
                             </a>
                         </div>

@@ -30,8 +30,7 @@ module.exports = function getUserView(userProfile, packages) {
         <div class="bg-white border-b border-gray-200 py-16">
             <div class="max-w-7xl mx-auto px-6 text-center flex flex-col items-center">
                 <img src="${userProfile.avatarUrl || 'https://ui-avatars.com/api/?name=Unknown'}" class="w-24 h-24 rounded-full border-4 border-white shadow-xl object-cover mb-5">
-                <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">${userProfile.displayName}</h1>
-                <p class="text-gray-500 font-medium text-lg mt-1">@${userProfile.username}</p>
+                <h1 class="text-3xl font-extrabold text-gray-900 tracking-tight">${userProfile.username ? '@' + userProfile.username : 'Anonymous Publisher'}</h1>
                 <div class="mt-6 flex items-center gap-4 text-sm font-medium text-gray-500">
                     <span class="flex items-center gap-1.5"><i data-lucide="boxes" class="w-4 h-4"></i> ${packages.length} Packages</span>
                     <span class="flex items-center gap-1.5"><i data-lucide="calendar" class="w-4 h-4"></i> Joined ${new Date(userProfile.createdAt).toLocaleDateString()}</span>
