@@ -10,7 +10,7 @@ const open = require('open');
 const http = require('http');
 const chalk = require('chalk');
 
-const SERVER_URL = 'http://localhost:8080';
+const SERVER_URL = 'https://edvu.in';
 const HOME_DIR = require('os').homedir();
 const CONFIG_FILE = path.join(HOME_DIR, '.xpm', 'auth.json');
 const XPM_BIN = path.join(HOME_DIR, '.xpm', 'bin');
