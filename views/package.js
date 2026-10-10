@@ -11,54 +11,44 @@ module.exports = function getPackageView(pkg, activeTab = 'readme', requestedFil
         depsHTML += '</tbody></table></div>';
     }
 
-    // Code Explorer UI
-    let codeHTML = '<div class="flex h-[600px] border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm">';
     
-    // Sidebar (File Tree)
-    codeHTML += '<div class="w-64 border-r border-gray-200 bg-gray-50 overflow-y-auto py-4 px-2">';
-    codeHTML += '<div class="px-3 pb-2 text-xs font-bold text-gray-400 uppercase tracking-wider mb-2 border-b border-gray-200">Files</div>';
-    if (pkg.fileTree && pkg.fileTree.length > 0) {
-        pkg.fileTree.forEach(file => {
-            const isSelected = requestedFile === file;
-            const icon = file.endsWith('.js') ? 'file-json-2' : (file.endsWith('.json') ? 'braces' : 'file-text');
-            codeHTML += `
-                <a href="/package/${pkg.name}?tab=code&file=${encodeURIComponent(file)}" 
-                   class="flex items-center gap-2 px-3 py-1.5 rounded-md text-sm transition-colors ${isSelected ? 'bg-indigo-100 text-indigo-700 font-medium' : 'text-gray-700 hover:bg-gray-200'}">
-                   <i data-lucide="${icon}" class="w-4 h-4 ${isSelected ? 'text-indigo-600' : 'text-gray-400'}"></i>
-                   ${file}
-                </a>
+    // Versions UI
+    let versionsHTML = '<div class="bg-white border border-gray-200 dark:border-gray-800 rounded-xl overflow-hidden shadow-sm">';
+    versionsHTML += '<div class="px-6 py-4 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-[#111]"><h3 class="font-bold text-gray-900 dark:text-white">Version History</h3></div>';
+    versionsHTML += '<div class="divide-y divide-gray-100 dark:divide-gray-800">';
+    
+    if (pkg.versions && pkg.versions.length > 0) {
+        // Sort descending
+        const sortedVersions = [...pkg.versions].sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        sortedVersions.forEach(v => {
+            const dateStr = new Date(v.createdAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+            versionsHTML += `
+                <div class="px-6 py-4 flex items-center justify-between hover:bg-gray-50 dark:hover:bg-[#151515] transition-colors">
+                    <div class="flex items-center gap-4">
+                        <span class="font-bold text-[16px] text-gray-900 dark:text-gray-100">${v.version}</span>
+                        ${pkg.distTags && pkg.distTags.get('latest') === v.version ? '<span class="px-2 py-0.5 bg-[#cb3837]/10 text-[#cb3837] text-xs font-bold rounded-md">latest</span>' : ''}
+                    </div>
+                    <div class="flex items-center gap-8">
+                        <span class="text-sm text-gray-500 font-mono">${(v.size / 1024 / 1024).toFixed(2)} MB</span>
+                        <span class="text-sm text-gray-500">${dateStr}</span>
+                        <div class="flex items-center gap-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-black px-3 py-1.5 rounded-md cursor-pointer hover:border-gray-400" onclick="navigator.clipboard.writeText('xpm install ${pkg.name}@${v.version}')">
+                            <code class="text-xs font-mono text-gray-700 dark:text-gray-300">xpm install ${pkg.name}@${v.version}</code>
+                            <i data-lucide="copy" class="w-3 h-3 text-gray-400"></i>
+                        </div>
+                    </div>
+                </div>
             `;
         });
     } else {
-        codeHTML += '<div class="px-3 text-sm text-gray-500 italic">No files available</div>';
+        versionsHTML += '<div class="px-6 py-8 text-center text-gray-500 italic">No version history available.</div>';
     }
-    codeHTML += '</div>';
+    versionsHTML += '</div></div>';
 
-    // Main area (File Content)
-    codeHTML += '<div class="flex-1 bg-white overflow-hidden flex flex-col">';
-    if (requestedFile) {
-        codeHTML += `<div class="px-4 py-3 border-b border-gray-200 bg-gray-50 flex items-center gap-2 text-sm font-medium text-gray-700">
-            <i data-lucide="file" class="w-4 h-4 text-gray-400"></i> ${requestedFile}
-        </div>`;
-        if (fileContent !== null) {
-            // Escape HTML characters
-            const escapedContent = fileContent.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-            codeHTML += `<div class="flex-1 overflow-auto bg-gray-50 p-4"><pre><code class="text-xs text-gray-800 font-mono">${escapedContent}</code></pre></div>`;
-        } else {
-            codeHTML += `<div class="flex-1 flex items-center justify-center text-gray-500 italic">Could not read file. (May be a binary)</div>`;
-        }
-    } else {
-        codeHTML += `<div class="flex-1 flex flex-col items-center justify-center text-gray-400">
-            <i data-lucide="mouse-pointer-click" class="w-12 h-12 mb-3 text-gray-300"></i>
-            <p>Select a file to view its contents.</p>
-        </div>`;
-    }
-    codeHTML += '</div></div>';
 
     // Tabs logic
     const tabs = {
         'readme': `<div id="readme" class="markdown-body bg-white border border-gray-100 p-8 rounded-2xl shadow-sm"></div>`,
-        'code': codeHTML,
+        'versions': versionsHTML,
         'dependencies': depsHTML
     };
 
@@ -81,13 +71,13 @@ module.exports = function getPackageView(pkg, activeTab = 'readme', requestedFil
                 </div>
                 
                 <div class="flex gap-8 text-sm font-semibold border-b border-gray-200 mt-10">
-                    <a href="?tab=readme" class="${activeTab === 'readme' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'} pb-3 px-1 flex items-center gap-2 transition-colors">
+                    <a href="?tab=readme" class="${activeTab === 'readme' ? 'text-[#cb3837] border-b-2 border-[#cb3837] font-bold' : 'text-gray-500 hover:text-gray-700'} pb-3 px-1 flex items-center gap-2 transition-colors">
                         <i data-lucide="book-open" class="w-4 h-4"></i> Readme
                     </a>
-                    <a href="?tab=code" class="${activeTab === 'code' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'} pb-3 px-1 flex items-center gap-2 transition-colors">
-                        <i data-lucide="file-code" class="w-4 h-4"></i> Code
-                    </a>
-                    <a href="?tab=dependencies" class="${activeTab === 'dependencies' ? 'text-indigo-600 border-b-2 border-indigo-600' : 'text-gray-500 hover:text-gray-700'} pb-3 px-1 flex items-center gap-2 transition-colors">
+                    <a href="?tab=versions" class="${activeTab === 'versions' ? 'text-[#cb3837] border-b-2 border-[#cb3837]' : 'text-gray-500 hover:text-gray-700'} pb-3 px-1 flex items-center gap-2 transition-colors font-bold text-sm">
+        <i data-lucide="layers" class="w-4 h-4"></i> Versions
+    </a>
+                    <a href="?tab=dependencies" class="${activeTab === 'dependencies' ? 'text-[#cb3837] border-b-2 border-[#cb3837] font-bold' : 'text-gray-500 hover:text-gray-700'} pb-3 px-1 flex items-center gap-2 transition-colors">
                         <i data-lucide="git-merge" class="w-4 h-4"></i> Dependencies
                     </a>
                 </div>
