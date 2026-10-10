@@ -164,7 +164,7 @@ app.post('/register', async (req, res) => {
         });
         
         if (process.env.RESEND_API_KEY) {
-            await transporter.sendMail({
+            await axios.post('https://api.resend.com/emails', {
                 from: '"XPM Registry" <' + (process.env.EMAIL_FROM || 'noreply@edvu.in') + '>',
                 to: email,
                 subject: 'XPM OTP for completing your sign up',
@@ -180,13 +180,18 @@ app.post('/register', async (req, res) => {
                     <hr style="border: none; border-top: 1px solid #eaeaea; margin: 30px 0;">
                     <p style="font-size: 12px; color: #9ca3af; text-align: center; line-height: 1.6;">
                         You're receiving this email because you recently created an XPM account. If this wasn't you, please ignore this email.<br><br>
-                        <a href="https://edvu.in" style="color: #4f46e5; text-decoration: none;">Preferences</a> · 
-                        <a href="https://edvu.in/terms" style="color: #4f46e5; text-decoration: none;">Terms</a> · 
-                        <a href="https://edvu.in/privacy" style="color: #4f46e5; text-decoration: none;">Privacy</a> · 
+                        <a href="https://edvu.in" style="color: #4f46e5; text-decoration: none;">Preferences</a> • 
+                        <a href="https://edvu.in/terms" style="color: #4f46e5; text-decoration: none;">Terms</a> • 
+                        <a href="https://edvu.in/privacy" style="color: #4f46e5; text-decoration: none;">Privacy</a> • 
                         <a href="https://edvu.in/login" style="color: #4f46e5; text-decoration: none;">Sign in to XPM</a>
                     </p>
                 </div>
                 `
+            }, {
+                headers: {
+                    'Authorization': `Bearer ${process.env.RESEND_API_KEY}`,
+                    'Content-Type': 'application/json'
+                }
             });
             console.log('✅ Sent OTP email to ' + email);
         } else {
