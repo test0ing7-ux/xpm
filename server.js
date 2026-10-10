@@ -7,7 +7,7 @@ const os = require('os');
 const multer = require('multer');
 const mongoose = require('mongoose');
 const passport = require('passport');
-const GoogleStrategy = require('passport-google-oauth20').Strategy;
+
 const session = require('express-session');
 const cors = require('cors');
 
@@ -566,7 +566,7 @@ app.get('/search', async (req, res) => {
 });
 
 app.get('/profile', async (req, res) => {
-    if (!req.user) return res.redirect('/auth/google');
+    if (!req.user) return res.redirect('/login');
     const userPackages = await Package.find({ author: req.user._id }).sort({ createdAt: -1 });
     res.send(getLayout(getProfileView(req.user, userPackages), req.user));
 });
