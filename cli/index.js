@@ -240,11 +240,28 @@ program
         }
 
         if (!metadata.name || !metadata.version) {
-            console.error(chalk.red('✖ xpm.json must contain "name" and "version".'));
+            console.error(chalk.red('✖ Package configuration must contain "name" and "version".'));
             return process.exit(1);
         }
 
         metadata.name = metadata.name.toLowerCase();
+
+        // Automatically locate and load README from disk
+        if (!metadata.readme) {
+            const readmeCandidates = ['README.md', 'readme.md', 'README', 'readme.txt', 'README.markdown', 'readme.markdown'];
+            for (const r of readmeCandidates) {
+                const rPath = path.join(currentDir, r);
+                if (fs.existsSync(rPath)) {
+                    try {
+                        metadata.readme = fs.readFileSync(rPath, 'utf8');
+                        break;
+                    } catch (e) {}
+                }
+            }
+        }
+
+        // Ensure dependencies are captured from package.json or xpm.json
+        metadata.dependencies = metadata.dependencies || {};
 
         console.log(chalk.cyan(`🚀 Publishing ${metadata.name}@${metadata.version}...`));
         console.log(chalk.yellow('🔒 Critical action requires WebAuthn/Passkey verification. Opening browser...'));

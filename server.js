@@ -573,7 +573,18 @@ app.get('/package/:name', async (req, res) => {
     const pkg = await Package.findOne({ name: req.params.name }).populate('author');
     if (!pkg) return res.status(404).send('Package not found');
     
+    // Find packages that depend on this package
+    const dependents = await Package.find({
+        $or: [
+            { [`dependencies.${pkg.name}`]: { $exists: true } },
+            { 'versions.dependencies': { $elemMatch: { [pkg.name]: { $exists: true } } } }
+        ]
+    }).select('name description version');
+
     const tab = req.query.tab || 'readme';
+    res.send(getLayout(getPackageView(pkg, tab, dependents), req.user));
+    return;
+    
     let fileContent = null;
     let requestedFile = req.query.file || null;
     
@@ -785,6 +796,7 @@ app.post('/api/publish', upload.single('package'), async (req, res) => {
         // Update top-level metadata for easy search
         pkg.description = description || pkg.description;
         pkg.readme = readme || pkg.readme;
+        pkg.dependencies = dependencies || pkg.dependencies || {};
         
         await pkg.save();
         

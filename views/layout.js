@@ -10,6 +10,8 @@ module.exports = function getLayout(content, user = null, notification = null) {
         <link rel="icon" type="image/svg+xml" href="/xpm-blue-favicon.svg">
         <script src="https://cdn.tailwindcss.com"></script>
         <script src="https://unpkg.com/lucide@latest"></script>
+        <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+        <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/github-markdown-css/5.5.1/github-markdown.min.css">
         <script>
             tailwind.config = { darkMode: 'class',
                 theme: {
