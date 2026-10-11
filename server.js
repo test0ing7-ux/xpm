@@ -19,6 +19,10 @@ app.set('trust proxy', 1);
 const PORT = process.env.PORT || 8080;
 
 app.use(cors());
+
+// --- HEALTH & PING ENDPOINTS (FOR UPTIME MONITORING) ---
+app.get('/health', (req, res) => res.status(200).send('OK'));
+app.get('/ping', (req, res) => res.status(200).send('PONG'));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
@@ -91,7 +95,7 @@ app.post('/login', (req, res, next) => {
         req.logIn(user, (err) => {
             if (err) return next(err);
             if (req.query.cli_port) {
-                return res.redirect('http://localhost:' + req.query.cli_port + '/callback?token=' + user.cliToken);
+                return res.redirect('/auth/cli?port=' + req.query.cli_port);
             }
             res.redirect('/');
         });
@@ -249,11 +253,49 @@ app.get('/logout', (req, res) => {
 });
 
 app.get('/auth/cli', async (req, res) => {
-    const port = req.query.port || '';
+    const port = req.query.port || '8989';
     if (!req.user) {
         return res.redirect('/login?cli_port=' + port);
     }
-    res.redirect('http://localhost:' + port + '/callback?token=' + req.user.cliToken);
+    
+    // Ensure user has a valid cliToken
+    if (!req.user.cliToken) {
+        req.user.cliToken = 'xpm_' + crypto.randomBytes(24).toString('hex');
+        await req.user.save();
+    }
+
+    const callbackUrl = 'http://localhost:' + port + '/callback?token=' + encodeURIComponent(req.user.cliToken);
+    
+    // Render an authorization confirmation page that auto-redirects to localhost
+    res.send(getLayout(`
+        <div class="min-h-[70vh] flex items-center justify-center px-4">
+            <div class="max-w-md w-full bg-white dark:bg-[#1a1a1a] border border-gray-200 dark:border-gray-800 rounded-2xl p-8 text-center shadow-lg">
+                <div class="w-16 h-16 bg-green-50 dark:bg-green-950/40 text-green-600 rounded-full flex items-center justify-center mx-auto mb-5 text-2xl font-bold">
+                    ✓
+                </div>
+                <h1 class="text-2xl font-extrabold text-gray-900 dark:text-white mb-2">Authorizing XPM CLI</h1>
+                <p class="text-sm text-gray-500 mb-6">Linking terminal session with <strong>@${req.user.username || req.user.email}</strong>...</p>
+                
+                <div class="p-3 bg-gray-50 dark:bg-[#111] rounded-xl border border-gray-200 dark:border-gray-800 mb-6 text-xs text-gray-600 dark:text-gray-400 font-mono">
+                    Connecting to local port ${port}
+                </div>
+
+                <a id="authBtn" href="${callbackUrl}" class="w-full bg-[#cb3837] hover:bg-[#a12928] text-white font-bold py-3 px-6 rounded-xl transition-colors block text-center shadow-sm">
+                    Complete CLI Authorization
+                </a>
+                
+                <p class="text-xs text-gray-400 mt-4">
+                    If your terminal does not update in 3 seconds, click the button above.
+                </p>
+            </div>
+        </div>
+        <script>
+            // Automatic instant redirect to local CLI server
+            setTimeout(() => {
+                window.location.href = "${callbackUrl}";
+            }, 800);
+        </script>
+    `, req.user));
 });
 
 app.get('/whoami', async (req, res) => {
@@ -496,6 +538,7 @@ const getProfileView = require('./views/profile');
 const getSearchView = require('./views/search');
 const getHelpView = require('./views/help');
 const getBillingView = require('./views/billing');
+const getDownloadView = require('./views/download');
 
 app.get('/', async (req, res) => {
     const packages = await Package.find().populate('author', 'username avatarUrl').sort({ downloads: -1 }).limit(12);
@@ -620,7 +663,31 @@ app.get('/billing', (req, res) => {
     res.send(getLayout(getBillingView(), req.user));
 });
 
-app.listen(PORT, () => console.log('🚀 XPM Server running on port ' + PORT));
+app.get('/download', (req, res) => {
+    res.send(getLayout(getDownloadView(), req.user));
+});
+
+app.get('/install', (req, res) => {
+    res.send(getLayout(getDownloadView(), req.user));
+});
+
+app.listen(PORT, () => {
+    console.log('🚀 XPM Server running on port ' + PORT);
+
+    // --- RENDER FREE TIER KEEP-ALIVE SYSTEM ---
+    // Automatically pings the server every 12 minutes to prevent Render 15-min idle sleep
+    const KEEP_ALIVE_URL = process.env.APP_URL || 'https://edvu.in';
+    const KEEP_ALIVE_INTERVAL = 12 * 60 * 1000; // 12 minutes
+    
+    setInterval(async () => {
+        try {
+            await axios.get(`${KEEP_ALIVE_URL}/health`, { timeout: 15000 });
+            console.log(`[Keep-Alive] Successfully pinged ${KEEP_ALIVE_URL}/health`);
+        } catch (err) {
+            console.log('[Keep-Alive] Notice:', err.message);
+        }
+    }, KEEP_ALIVE_INTERVAL);
+});
 
 app.post('/api/publish', upload.single('package'), async (req, res) => {
     try {

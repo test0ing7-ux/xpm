@@ -74,6 +74,7 @@ module.exports = function getLayout(content, user = null, notification = null) {
                 <a href="#" class="hover:text-black dark:text-white transition-colors">Pro</a>
                 <a href="#" class="hover:text-black dark:text-white transition-colors">Teams</a>
                 <a href="#" class="hover:text-black dark:text-white transition-colors">Pricing</a>
+                <a href="/download" class="hover:text-black dark:text-white transition-colors text-[#cb3837] font-bold">Download</a>
                 <a href="/help" class="hover:text-black dark:text-white transition-colors">Documentation</a>
             </div>
             <div class="flex items-center text-[13px] font-semibold text-gray-600 dark:text-gray-400">

@@ -94,9 +94,36 @@ program
                 const token = url.searchParams.get('token');
                 if (token) {
                     setToken(token);
-                    res.writeHead(200, { 'Content-Type': 'text/html' });
-                    res.end('<h1>Successfully logged in! You can close this window.</h1><script>window.close()</script>');
-                    console.log(chalk.green.bold('✔ Successfully logged in!'));
+                    res.writeHead(200, { 
+                        'Content-Type': 'text/html',
+                        'Access-Control-Allow-Origin': '*'
+                    });
+                    res.end(`
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                            <title>XPM - Authenticated</title>
+                            <meta charset="utf-8">
+                            <style>
+                                body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; display: flex; align-items: center; justify-content: center; height: 100vh; margin: 0; background: #fafafa; }
+                                .card { background: white; border: 1px solid #eaeaea; border-radius: 16px; padding: 48px 36px; text-align: center; box-shadow: 0 4px 20px rgba(0,0,0,0.06); max-width: 420px; }
+                                .icon { width: 56px; height: 56px; background: #e6f7ec; color: #10b981; border-radius: 50%; display: flex; align-items: center; justify-content: center; margin: 0 auto 20px; font-size: 26px; font-weight: bold; }
+                                h1 { margin: 0 0 10px; font-size: 22px; color: #111; }
+                                p { margin: 0; color: #666; font-size: 14px; line-height: 1.5; }
+                            </style>
+                        </head>
+                        <body>
+                            <div class="card">
+                                <div class="icon">✓</div>
+                                <h1>CLI Authenticated!</h1>
+                                <p>You have successfully logged in. You can now close this tab and return to your terminal.</p>
+                            </div>
+                            <script>setTimeout(() => { window.close(); }, 3000);</script>
+                        </body>
+                        </html>
+                    `);
+                    console.log(chalk.green.bold('\n✔ Successfully logged in to XPM!'));
+                    console.log(chalk.gray('Authentication token saved to ~/.xpm/auth.json\n'));
                     server.close();
                     process.exit(0);
                 }
