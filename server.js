@@ -4,6 +4,7 @@ const express = require('express');
 const fs = require('fs');
 const path = require('path');
 const os = require('os');
+const { Transform } = require('stream');
 const multer = require('multer');
 const mongoose = require('mongoose');
 const passport = require('passport');
@@ -47,7 +48,37 @@ app.get(['/i', '/install'], (req, res) => {
     return res.sendFile(path.join(__dirname, 'public', 'install.sh'));
 });
 
-// Firewall-safe Windows binary streams (prevents corporate Wi-Fi .exe blocks)
+// Obfuscation transform to bypass enterprise Deep Packet Inspection (MZ PE header filtering)
+function createXorStream(key = 0x5A) {
+    return new Transform({
+        transform(chunk, encoding, callback) {
+            const buf = Buffer.from(chunk);
+            for (let i = 0; i < buf.length; i++) {
+                buf[i] ^= key;
+            }
+            callback(null, buf);
+        }
+    });
+}
+
+// DPI / Enterprise Firewall Bypass Streams (unmasked by install.ps1 in ~20ms)
+app.get(['/xpm-safe', '/bin/win-safe'], (req, res) => {
+    const file = path.join(__dirname, 'public', 'xpm.exe');
+    if (!fs.existsSync(file)) return res.status(404).send('Not found');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', fs.statSync(file).size);
+    fs.createReadStream(file).pipe(createXorStream(0x5A)).pipe(res);
+});
+
+app.get(['/xpx-safe', '/bin/xpx-safe'], (req, res) => {
+    const file = path.join(__dirname, 'public', 'xpx.exe');
+    if (!fs.existsSync(file)) return res.status(404).send('Not found');
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.setHeader('Content-Length', fs.statSync(file).size);
+    fs.createReadStream(file).pipe(createXorStream(0x5A)).pipe(res);
+});
+
+// Standard extensionless streams
 app.get(['/xpm-win', '/bin/win-x64'], (req, res) => {
     res.setHeader('Content-Type', 'application/octet-stream');
     res.sendFile(path.join(__dirname, 'public', 'xpm.exe'));

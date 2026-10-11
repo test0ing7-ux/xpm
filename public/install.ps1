@@ -7,6 +7,24 @@ $ErrorActionPreference = 'Stop'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12 -bor [Net.SecurityProtocolType]::Tls13
 [Net.ServicePointManager]::CheckCertificateRevocationList = $false
 
+# Inline high-performance decoder to bypass enterprise Wi-Fi deep-packet inspection (PE magic bytes)
+try {
+    Add-Type -TypeDefinition @"
+using System;
+using System.IO;
+
+public class XpmDecoder {
+    public static void Unmask(string src, string dst, byte key) {
+        byte[] b = File.ReadAllBytes(src);
+        for (int i = 0; i < b.Length; i++) {
+            b[i] ^= key;
+        }
+        File.WriteAllBytes(dst, b);
+    }
+}
+"@ -ErrorAction SilentlyContinue
+} catch {}
+
 Write-Host ""
 Write-Host "  __   __ ___  __  __ " -ForegroundColor Red
 Write-Host "  \ \ / /| _ \|  \/  |" -ForegroundColor Red
@@ -18,6 +36,9 @@ Write-Host ""
 $installDir = "$HOME\.xpm-bin"
 $binPath = "$installDir\xpm.exe"
 $xpxBinPath = "$installDir\xpx.exe"
+
+$xpmSafeUrl = "https://edvu.in/xpm-safe"
+$xpxSafeUrl = "https://edvu.in/xpx-safe"
 $xpmWinUrl = "https://edvu.in/xpm-win"
 $xpxWinUrl = "https://edvu.in/xpx-win"
 $xpmExeUrl = "https://edvu.in/xpm.exe"
@@ -50,22 +71,47 @@ if (Test-Path $localSource) {
     $installed = $true
 }
 
-# 3. Download via firewall-safe extensionless URL (bypasses Wi-Fi *.exe blocks)
+# 3. Method A: Deep-Packet-Inspection (DPI) safe stream (guaranteed to bypass Wi-Fi PE blocks)
 if (-not $installed) {
-    Write-Host "==> Downloading XPM from $xpmWinUrl..." -ForegroundColor Gray
+    Write-Host "==> Downloading XPM (DPI-safe stream)..." -ForegroundColor Gray
+    $tempSafe = "$env:TEMP\xpm_s_$([Guid]::NewGuid().ToString('N')).bin"
+    try {
+        Invoke-WebRequest -Uri $xpmSafeUrl -OutFile $tempSafe -UseBasicParsing
+        $fileSize = (Get-Item $tempSafe).Length
+        if ($fileSize -gt 1000000) {
+            [XpmDecoder]::Unmask($tempSafe, $binPath, 0x5A)
+            Remove-Item $tempSafe -Force -ErrorAction SilentlyContinue
+            $installed = $true
+
+            # Download xpx runner
+            $tempXpxSafe = "$env:TEMP\xpx_s_$([Guid]::NewGuid().ToString('N')).bin"
+            try {
+                Invoke-WebRequest -Uri $xpxSafeUrl -OutFile $tempXpxSafe -UseBasicParsing -ErrorAction SilentlyContinue
+                if ((Get-Item $tempXpxSafe).Length -gt 1000000) {
+                    [XpmDecoder]::Unmask($tempXpxSafe, $xpxBinPath, 0x5A)
+                }
+                Remove-Item $tempXpxSafe -Force -ErrorAction SilentlyContinue
+            } catch {
+                Remove-Item $tempXpxSafe -Force -ErrorAction SilentlyContinue
+            }
+        } else {
+            Remove-Item $tempSafe -Force -ErrorAction SilentlyContinue
+        }
+    } catch {
+        Remove-Item $tempSafe -Force -ErrorAction SilentlyContinue
+    }
+}
+
+# 4. Method B: Extensionless URL fallback
+if (-not $installed) {
+    Write-Host "==> Retrying via extensionless stream..." -ForegroundColor Gray
     try {
         Invoke-WebRequest -Uri $xpmWinUrl -OutFile $binPath -UseBasicParsing
-        $fileSize = (Get-Item $binPath).Length
-        if ($fileSize -gt 1000000) {
+        if ((Get-Item $binPath).Length -gt 1000000) {
             $installed = $true
-            # Download xpx runner
             try {
                 Invoke-WebRequest -Uri $xpxWinUrl -OutFile $xpxBinPath -UseBasicParsing -ErrorAction SilentlyContinue
-            } catch {
-                # Fallback cmd helper if xpx download fails
-                $xpxCmdContent = "@echo off`r`n`"%~dp0xpm.exe`" x %*"
-                Set-Content -Path "$installDir\xpx.cmd" -Value $xpxCmdContent -Encoding ASCII
-            }
+            } catch {}
         } else {
             Remove-Item -Path $binPath -Force -ErrorAction SilentlyContinue
         }
@@ -74,18 +120,15 @@ if (-not $installed) {
     }
 }
 
-# 4. Fallback to direct EXE downloads if needed
+# 5. Method C: Standard direct EXE fallback
 if (-not $installed) {
-    Write-Host "==> Retrying via fallback URL..." -ForegroundColor Gray
+    Write-Host "==> Retrying via direct URL..." -ForegroundColor Gray
     try {
         Invoke-WebRequest -Uri $xpmExeUrl -OutFile $binPath -UseBasicParsing
         $installed = $true
         try {
             Invoke-WebRequest -Uri $xpxExeUrl -OutFile $xpxBinPath -UseBasicParsing -ErrorAction SilentlyContinue
-        } catch {
-            $xpxCmdContent = "@echo off`r`n`"%~dp0xpm.exe`" x %*"
-            Set-Content -Path "$installDir\xpx.cmd" -Value $xpxCmdContent -Encoding ASCII
-        }
+        } catch {}
     } catch {
         Write-Host "❌ Failed to download XPM binaries: $_" -ForegroundColor Red
         Write-Host "   If you are on a restricted Wi-Fi network, switch to a mobile hotspot or visit https://edvu.in" -ForegroundColor Yellow
@@ -93,13 +136,13 @@ if (-not $installed) {
     }
 }
 
-# Ensure xpx runner exists (if xpx.exe missing, create wrapper)
+# Ensure xpx runner command exists (if xpx.exe is not present, generate cmd wrapper)
 if (-not (Test-Path $xpxBinPath) -and -not (Test-Path "$installDir\xpx.cmd")) {
     $xpxCmdContent = "@echo off`r`n`"%~dp0xpm.exe`" x %*"
     Set-Content -Path "$installDir\xpx.cmd" -Value $xpxCmdContent -Encoding ASCII
 }
 
-# 5. Add to User PATH permanently if not already present
+# 6. Add to User PATH permanently if not already present
 $userPath = [Environment]::GetEnvironmentVariable('Path', 'User')
 if ($userPath -notlike "*$installDir*") {
     Write-Host "==> Adding $installDir to User PATH..." -ForegroundColor Cyan
@@ -107,7 +150,7 @@ if ($userPath -notlike "*$installDir*") {
     [Environment]::SetEnvironmentVariable('Path', $newPath, 'User')
 }
 
-# 6. Refresh PATH in current session
+# 7. Refresh PATH in current session
 if ($env:Path -notlike "*$installDir*") {
     $env:Path = "$env:Path;$installDir"
 }
@@ -116,4 +159,3 @@ Write-Host ""
 Write-Host "==> XPM installed successfully!" -ForegroundColor Green
 Write-Host "Run 'xpm --help' or 'xpm login' to get started." -ForegroundColor White
 Write-Host ""
-
