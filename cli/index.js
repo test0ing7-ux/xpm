@@ -226,6 +226,8 @@ program
             return process.exit(1);
         }
 
+        metadata.name = metadata.name.toLowerCase();
+
         console.log(chalk.cyan(`🚀 Publishing ${metadata.name}@${metadata.version}...`));
         console.log(chalk.yellow('🔒 Critical action requires WebAuthn/Passkey verification. Opening browser...'));
 

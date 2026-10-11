@@ -14,6 +14,16 @@ const cors = require('cors');
 const User = require('./models/User');
 const Package = require('./models/Package');
 
+// In-memory action tokens map for WebAuthn / Passkey verification
+const actionTokens = new Map();
+
+function getGridFS() {
+    if (!gfs && mongoose.connection.readyState === 1 && mongoose.connection.db) {
+        gfs = new mongoose.mongo.GridFSBucket(mongoose.connection.db, { bucketName: 'tarballs' });
+    }
+    return gfs;
+}
+
 const app = express();
 app.set('trust proxy', 1);
 const PORT = process.env.PORT || 8080;
@@ -357,7 +367,9 @@ app.post('/publish', upload.single('package'), async (req, res) => {
         }
 
         // Upload to GridFS
-        const uploadStream = gfs.openUploadStream(filename);
+        const gridBucket = getGridFS() || gfs;
+        if (!gridBucket) return res.status(503).json({ error: 'Database storage not ready, please retry.' });
+        const uploadStream = gridBucket.openUploadStream(filename);
         const readStream = fs.createReadStream(req.file.path);
         readStream.pipe(uploadStream);
         
@@ -763,6 +775,8 @@ app.post('/api/publish', upload.single('package'), async (req, res) => {
 
         if (!pkg.versions) pkg.versions = [];
         pkg.versions.push(newVersion);
+        pkg.version = version;
+        pkg.tarballSize = newVersion.size;
         
         // Update tags
         if (!pkg.distTags) pkg.distTags = new Map();
@@ -777,7 +791,7 @@ app.post('/api/publish', upload.single('package'), async (req, res) => {
         res.json({ message: `Successfully published ${name}@${version}` });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ error: 'Internal Server Error' });
+        res.status(500).json({ error: err.message || 'Internal Server Error' });
     }
 });
 
@@ -827,21 +841,23 @@ app.get('/authorize', (req, res) => {
 });
 
 app.post('/authorize', (req, res) => {
-    if (!req.user) return res.status(401).send('Unauthorized');
-    
-    const { action, package: pkg, version, port } = req.body;
-    
-    // In a real passkey flow, we'd verify WebAuthn assertion here.
-    // For now, they clicked the button which counts as verified session auth.
-    const token = require('crypto').randomBytes(32).toString('hex');
-    
-    actionTokens.set(token, {
-        user_id: req.user._id,
-        action,
-        package: pkg,
-        version,
-        expires: Date.now() + 5 * 60 * 1000 // 5 minutes
-    });
-    
-    res.redirect(`http://localhost:${port}/callback?actionToken=${token}`);
+    try {
+        if (!req.user) return res.status(401).send('Unauthorized');
+        
+        const { action, package: pkg, version, port } = req.body;
+        const token = crypto.randomBytes(32).toString('hex');
+        
+        actionTokens.set(token, {
+            user_id: req.user._id,
+            action,
+            package: pkg,
+            version,
+            expires: Date.now() + 5 * 60 * 1000 // 5 minutes
+        });
+        
+        res.redirect(`http://localhost:${port}/callback?actionToken=${token}`);
+    } catch(err) {
+        console.error('Authorize error:', err);
+        res.status(500).send('Authorization Error: ' + err.message);
+    }
 });

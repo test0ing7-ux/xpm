@@ -20,6 +20,8 @@ const PackageSchema = new mongoose.Schema({
         match: [/^[a-z0-9-]+$/, 'Package name can only contain lowercase letters, numbers, and dashes.']
     },
     author: { type: mongoose.Schema.Types.ObjectId, ref: 'User', required: true },
+    version: { type: String },
+    tarballSize: { type: Number, default: 0 },
     maintainers: [{ type: mongoose.Schema.Types.ObjectId, ref: 'User' }],
     
     versions: [VersionSchema],
