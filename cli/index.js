@@ -1,41 +1,61 @@
 #!/usr/bin/env node
 
 const { program } = require('commander');
-const fs = require('fs-extra');
+const fs = require('fs');
 const path = require('path');
+const os = require('os');
+const http = require('http');
+const { exec } = require('child_process');
 const axios = require('axios');
 const AdmZip = require('adm-zip');
 const FormData = require('form-data');
-const open = require('open');
-const http = require('http');
 const chalk = require('chalk');
 
 const SERVER_URL = 'https://edvu.in';
-const HOME_DIR = require('os').homedir();
-const CONFIG_FILE = path.join(HOME_DIR, '.xpm', 'auth.json');
-const XPM_BIN = path.join(HOME_DIR, '.xpm', 'bin');
+const HOME_DIR = os.homedir();
+const XPM_DIR = path.join(HOME_DIR, '.xpm');
+const CONFIG_FILE = path.join(XPM_DIR, 'auth.json');
+const XPM_BIN = path.join(HOME_DIR, '.xpm-bin');
 
-fs.ensureDirSync(XPM_BIN);
+// Ensure directories exist
+try { fs.mkdirSync(XPM_DIR, { recursive: true }); } catch (e) {}
+try { fs.mkdirSync(XPM_BIN, { recursive: true }); } catch (e) {}
+
+// Native cross-platform browser opener (zero dependencies, 100% works in pkg on Windows, Mac, Linux)
+function openBrowser(url) {
+    const platform = process.platform;
+    if (platform === 'win32') {
+        exec(`start "" "${url}"`);
+    } else if (platform === 'darwin') {
+        exec(`open "${url}"`);
+    } else {
+        exec(`xdg-open "${url}"`);
+    }
+}
 
 function getToken() {
-    if (fs.existsSync(CONFIG_FILE)) {
-        return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8')).token;
-    }
+    try {
+        if (fs.existsSync(CONFIG_FILE)) {
+            const data = JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+            return data.token || null;
+        }
+    } catch (e) {}
     return null;
 }
 
 function setToken(token) {
-    fs.ensureDirSync(path.dirname(CONFIG_FILE));
-    fs.writeFileSync(CONFIG_FILE, JSON.stringify({ token }));
+    try {
+        fs.mkdirSync(path.dirname(CONFIG_FILE), { recursive: true });
+        fs.writeFileSync(CONFIG_FILE, JSON.stringify({ token }, null, 2));
+    } catch (e) {}
 }
 
 program
     .name('xpm')
-    .description(chalk.cyan.bold('XPM - The Universal Native Package Manager'))
+    .description(chalk.cyan.bold('XPM - The Universal Native Package Manager (Windows, macOS, Linux)'))
     .version('1.0.0');
 
-
-// xpm init
+// --- xpm init ---
 program
     .command('init')
     .description('Initialize a new xpm.json configuration file')
@@ -61,7 +81,7 @@ program
         console.log(chalk.gray(JSON.stringify(defaultMetadata, null, 2)));
     });
 
-// xpm login
+// --- xpm login ---
 program
     .command('login')
     .description('Login to your XPM account via browser')
@@ -69,24 +89,55 @@ program
         console.log(chalk.yellow('Waiting for browser authentication...'));
         
         const server = http.createServer((req, res) => {
-            const url = new URL(req.url, `http://${req.headers.host}`);
-            const token = url.searchParams.get('token');
-            if (token) {
-                setToken(token);
-                res.writeHead(200, { 'Content-Type': 'text/html' });
-                res.end('<h1>Successfully logged in! You can close this window.</h1><script>window.close()</script>');
-                console.log(chalk.green.bold('✔ Successfully logged in!'));
-                server.close();
-                process.exit(0);
+            try {
+                const url = new URL(req.url, `http://${req.headers.host}`);
+                const token = url.searchParams.get('token');
+                if (token) {
+                    setToken(token);
+                    res.writeHead(200, { 'Content-Type': 'text/html' });
+                    res.end('<h1>Successfully logged in! You can close this window.</h1><script>window.close()</script>');
+                    console.log(chalk.green.bold('✔ Successfully logged in!'));
+                    server.close();
+                    process.exit(0);
+                }
+            } catch (err) {
+                res.writeHead(500, { 'Content-Type': 'text/plain' });
+                res.end('Authentication failed');
             }
         });
 
         server.listen(8989, () => {
-            open(`${SERVER_URL}/login?cli_port=8989`);
+            openBrowser(`${SERVER_URL}/auth/cli?port=8989`);
+        });
+
+        server.on('error', (err) => {
+            console.error(chalk.red('✖ Failed to start local authentication listener:'), err.message);
+            process.exit(1);
         });
     });
 
-// xpm info
+// --- xpm whoami ---
+program
+    .command('whoami')
+    .description('Check currently logged-in account')
+    .action(async () => {
+        const token = getToken();
+        if (!token) {
+            console.error(chalk.red('✖ Not logged in. Run ') + chalk.yellow('xpm login'));
+            process.exit(1);
+        }
+        try {
+            const { data } = await axios.get(`${SERVER_URL}/whoami`, {
+                headers: { 'Authorization': `Bearer ${token}` }
+            });
+            console.log(chalk.green('✔ Logged in as:'), chalk.white.bold(data.username), chalk.gray(`(${data.email})`));
+        } catch (e) {
+            console.error(chalk.red('✖ Invalid or expired token. Run ') + chalk.yellow('xpm login'));
+            process.exit(1);
+        }
+    });
+
+// --- xpm info / view ---
 program
     .command('info')
     .alias('view')
@@ -99,14 +150,15 @@ program
             console.log(chalk.green.bold.underline(data.name));
             console.log(chalk.gray(data.description || 'No description provided.'));
             console.log();
-            console.log(chalk.cyan('Latest Version:'), chalk.white(data.distTags?.latest || 'Unknown'));
+            console.log(chalk.cyan('Latest Version:'), chalk.white(data.distTags?.latest || (data.versions?.[data.versions.length - 1]?.version) || 'Unknown'));
             console.log(chalk.cyan('Author:'), chalk.white(data.author?.username || 'Unknown'));
-            console.log(chalk.cyan('Downloads:'), chalk.white(data.downloads));
+            console.log(chalk.cyan('Downloads:'), chalk.white(data.downloads || 0));
             
             if (data.versions && data.versions.length > 0) {
                 console.log(chalk.cyan('\nPublished Versions:'));
                 data.versions.forEach(v => {
-                    console.log(`  - ${chalk.yellow(v.version)} (${new Date(v.createdAt).toLocaleDateString()})`);
+                    const dateStr = v.createdAt ? new Date(v.createdAt).toLocaleDateString() : '';
+                    console.log(`  - ${chalk.yellow(v.version)} ${dateStr ? chalk.gray('(' + dateStr + ')') : ''}`);
                 });
             }
             console.log();
@@ -115,7 +167,7 @@ program
         }
     });
 
-// xpm publish
+// --- xpm publish ---
 program
     .command('publish')
     .description('Publish the current directory as an immutable version to the registry')
@@ -130,11 +182,18 @@ program
         const xpmJsonPath = path.join(currentDir, 'xpm.json');
 
         if (!fs.existsSync(xpmJsonPath)) {
-            console.error(chalk.red('✖ Missing xpm.json in current directory.'));
+            console.error(chalk.red('✖ Missing xpm.json in current directory. Run ') + chalk.yellow('xpm init') + chalk.red(' first.'));
             return process.exit(1);
         }
 
-        const metadata = JSON.parse(fs.readFileSync(xpmJsonPath, 'utf8'));
+        let metadata;
+        try {
+            metadata = JSON.parse(fs.readFileSync(xpmJsonPath, 'utf8'));
+        } catch (e) {
+            console.error(chalk.red('✖ Invalid JSON syntax in xpm.json'));
+            return process.exit(1);
+        }
+
         if (!metadata.name || !metadata.version) {
             console.error(chalk.red('✖ xpm.json must contain "name" and "version".'));
             return process.exit(1);
@@ -152,12 +211,25 @@ program
                 res.end('<h1>Action Verified. You can close this window.</h1><script>window.close()</script>');
                 server.close();
                 
-                console.log(chalk.green('✔ Security verification passed. Uploading payload...'));
+                console.log(chalk.green('✔ Security verification passed. Packing and uploading payload...'));
                 
+                let zipPath = null;
                 try {
-                    const zipPath = path.join(currentDir, `.xpm-pack-${Date.now()}.zip`);
+                    zipPath = path.join(currentDir, `.xpm-pack-${Date.now()}.zip`);
                     const zip = new AdmZip();
-                    zip.addLocalFolder(currentDir);
+                    
+                    // Add files, cleanly excluding node_modules, .git, and temporary pack zips
+                    const items = fs.readdirSync(currentDir);
+                    for (const item of items) {
+                        if (item === 'node_modules' || item === '.git' || item.startsWith('.xpm-pack-')) continue;
+                        const fullPath = path.join(currentDir, item);
+                        const stat = fs.statSync(fullPath);
+                        if (stat.isDirectory()) {
+                            zip.addLocalFolder(fullPath, item);
+                        } else {
+                            zip.addLocalFile(fullPath);
+                        }
+                    }
                     zip.writeZip(zipPath);
 
                     const form = new FormData();
@@ -169,14 +241,20 @@ program
                             ...form.getHeaders(),
                             'Authorization': `Bearer ${token}`,
                             'X-Action-Token': actionToken
-                        }
+                        },
+                        maxContentLength: Infinity,
+                        maxBodyLength: Infinity
                     });
 
-                    console.log(chalk.green.bold(`\n🎉 Success! ${metadata.name}@${metadata.version} published.`));
-                    fs.removeSync(zipPath);
+                    console.log(chalk.green.bold(`\n🎉 Success! ${metadata.name}@${metadata.version} published to XPM.`));
+                    if (zipPath && fs.existsSync(zipPath)) {
+                        try { fs.rmSync(zipPath, { force: true }); } catch (e) {}
+                    }
                     process.exit(0);
                 } catch (error) {
-                    fs.removeSync(path.join(currentDir, `.xpm-pack-*`)).catch(()=>{});
+                    if (zipPath && fs.existsSync(zipPath)) {
+                        try { fs.rmSync(zipPath, { force: true }); } catch (e) {}
+                    }
                     console.error(chalk.red('\n✖ Publish failed:'), error.response?.data?.error || error.message);
                     process.exit(1);
                 }
@@ -184,11 +262,16 @@ program
         });
 
         server.listen(8989, () => {
-            open(`${SERVER_URL}/authorize?action=publish&package=${metadata.name}&version=${metadata.version}&port=8989`);
+            openBrowser(`${SERVER_URL}/authorize?action=publish&package=${encodeURIComponent(metadata.name)}&version=${encodeURIComponent(metadata.version)}&port=8989`);
+        });
+
+        server.on('error', (err) => {
+            console.error(chalk.red('✖ Failed to start verification listener:'), err.message);
+            process.exit(1);
         });
     });
 
-// xpm install
+// --- xpm install ---
 program
     .command('install')
     .description('Install an executable package globally')
@@ -196,7 +279,6 @@ program
     .action(async (pkgNameStr) => {
         console.log(chalk.cyan(`\n📦 Fetching ${pkgNameStr}...`));
         
-        // Basic resolution logic
         let name = pkgNameStr;
         let version = 'latest';
         if (pkgNameStr.includes('@') && !pkgNameStr.startsWith('@')) {
@@ -204,17 +286,65 @@ program
         }
 
         try {
-            // Check metadata first
             const { data: meta } = await axios.get(`${SERVER_URL}/api/package/${name}`);
-            const targetVersion = version === 'latest' ? meta.distTags.latest : version;
+            const targetVersion = version === 'latest' ? (meta.distTags?.latest || meta.version) : version;
             
             console.log(chalk.gray(`Resolving ${name}@${targetVersion}...`));
             
-            // NOTE: Need to implement the exact download endpoint matching versions on backend
-            // Doing a basic simulation for now.
-            console.log(chalk.green(`✔ Installed ${name} to ${XPM_BIN}`));
-            console.log(chalk.yellow('Make sure ' + XPM_BIN + ' is in your system PATH.'));
-        } catch(e) {
+            // Download payload
+            const downloadUrl = `${SERVER_URL}/download/${name}/${targetVersion}`;
+            const pkgDestDir = path.join(XPM_BIN, name);
+            try { fs.mkdirSync(pkgDestDir, { recursive: true }); } catch (e) {}
+            
+            const tempZipPath = path.join(pkgDestDir, `temp-${Date.now()}.zip`);
+            const writer = fs.createWriteStream(tempZipPath);
+            
+            const response = await axios.get(downloadUrl, { responseType: 'stream' });
+            response.data.pipe(writer);
+            
+            await new Promise((resolve, reject) => {
+                writer.on('finish', resolve);
+                writer.on('error', reject);
+            });
+            
+            // Extract
+            const zip = new AdmZip(tempZipPath);
+            zip.extractAllTo(pkgDestDir, true);
+            try { fs.rmSync(tempZipPath, { force: true }); } catch (e) {}
+            
+            // Create executable shims in XPM_BIN so it's in PATH
+            const isWin = process.platform === 'win32';
+            let execName = name;
+            let targetExec = path.join(pkgDestDir, isWin ? `${name}.exe` : name);
+            
+            if (!fs.existsSync(targetExec)) {
+                // Check if main is specified in xpm.json
+                const pkgJsonPath = path.join(pkgDestDir, 'xpm.json');
+                if (fs.existsSync(pkgJsonPath)) {
+                    try {
+                        const parsed = JSON.parse(fs.readFileSync(pkgJsonPath, 'utf8'));
+                        if (parsed.main && fs.existsSync(path.join(pkgDestDir, parsed.main))) {
+                            targetExec = path.join(pkgDestDir, parsed.main);
+                        }
+                    } catch (e) {}
+                }
+            }
+            
+            if (isWin) {
+                const cmdShim = `@ECHO off\r\n"${targetExec}" %*`;
+                fs.writeFileSync(path.join(XPM_BIN, `${name}.cmd`), cmdShim);
+                const ps1Shim = `& "${targetExec}" $args`;
+                fs.writeFileSync(path.join(XPM_BIN, `${name}.ps1`), ps1Shim);
+            } else {
+                const shShim = `#!/bin/sh\nexec "${targetExec}" "$@"`;
+                const shimPath = path.join(XPM_BIN, name);
+                fs.writeFileSync(shimPath, shShim);
+                try { fs.chmodSync(shimPath, 0o755); } catch (e) {}
+            }
+            
+            console.log(chalk.green.bold(`✔ Successfully installed ${name}@${targetVersion} to ${XPM_BIN}`));
+            console.log(chalk.gray(`Executable ready: ${name}`));
+        } catch (e) {
             console.error(chalk.red('✖ Error installing package:'), e.response?.data?.error || e.message);
         }
     });

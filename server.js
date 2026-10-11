@@ -75,8 +75,11 @@ const getRegisterView = require('./views/register');
 const getVerifyView = require('./views/verify');
 
 app.get('/login', (req, res) => {
-    if (req.user) return res.redirect('/');
-    res.send(getLayout(getLoginView(req.query.error), req.user));
+    if (req.user) {
+        if (req.query.cli_port) return res.redirect('/auth/cli?port=' + req.query.cli_port);
+        return res.redirect('/');
+    }
+    res.send(getLayout(getLoginView(req.query.error, req.query.cli_port), req.user));
 });
 
 app.post('/login', (req, res, next) => {
@@ -356,6 +359,39 @@ app.delete('/package/:name', async (req, res) => {
         res.json({ message: `Package ${pkg.name} deleted successfully.` });
     } catch (err) {
         res.status(500).json({ error: err.message });
+    }
+});
+
+// Download package by name and version
+app.get('/download/:name/:version', async (req, res) => {
+    try {
+        const { name, version } = req.params;
+        const pkg = await Package.findOne({ name });
+        if (!pkg) return res.status(404).json({ error: 'Package not found' });
+
+        const targetVerStr = (version === 'latest') ? (pkg.distTags?.get('latest') || pkg.version) : version;
+        let verObj = null;
+        if (pkg.versions && pkg.versions.length > 0) {
+            verObj = pkg.versions.find(v => v.version === targetVerStr);
+        }
+
+        const gridId = verObj?.gridFsId || pkg.tarballId;
+        if (!gridId) return res.status(404).json({ error: 'Package payload not found in storage' });
+
+        pkg.downloads = (pkg.downloads || 0) + 1;
+        await pkg.save();
+
+        const ext = verObj?.filename?.endsWith('.tgz') ? 'tgz' : 'zip';
+        const contentType = ext === 'tgz' ? 'application/gzip' : 'application/zip';
+        res.set('Content-Type', contentType);
+        res.set('Content-Disposition', 'attachment; filename="' + name + '-' + targetVerStr + '.' + ext + '"');
+
+        const downloadStream = gfs.openDownloadStream(gridId);
+        downloadStream.on('error', () => res.status(404).json({ error: 'File stream not found in GridFS' }));
+        downloadStream.pipe(res);
+    } catch (e) {
+        console.error(e);
+        res.status(500).json({ error: 'Download failed' });
     }
 });
 

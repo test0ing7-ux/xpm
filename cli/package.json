@@ -1,23 +1,23 @@
 {
   "name": "xpm-cli",
   "version": "1.0.0",
-  "description": "Custom package manager CLI",
+  "description": "Universal Native Package Manager CLI for Windows, macOS, and Linux",
   "main": "index.js",
   "bin": {
     "xpm": "./index.js"
   },
   "scripts": {
-    "build": "pkg . --targets node18-win-x64 --output xpm.exe"
+    "build": "pkg . --targets node18-win-x64 --output ../public/xpm.exe",
+    "build:linux": "pkg . --targets node18-linux-x64 --output ../public/xpm-linux",
+    "build:macos": "pkg . --targets node18-macos-x64 --output ../public/xpm-macos",
+    "build:all": "pkg . --targets node18-win-x64,node18-linux-x64,node18-macos-x64 --output ../public/xpm"
   },
   "dependencies": {
     "adm-zip": "^0.5.18",
     "axios": "^1.20.0",
     "chalk": "^4.1.2",
-    "combined-stream": "^1.0.8",
     "commander": "^11.1.0",
-    "form-data": "^4.0.6",
-    "fs-extra": "^11.2.0",
-    "open": "^11.0.4"
+    "form-data": "^4.0.6"
   },
   "devDependencies": {
     "pkg": "^5.8.1"

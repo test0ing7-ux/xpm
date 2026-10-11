@@ -31,6 +31,9 @@ module.exports = function getPackageView(pkg, activeTab = 'readme', requestedFil
                     <div class="flex items-center gap-8">
                         <span class="text-sm text-gray-500 font-mono">${(v.size / 1024 / 1024).toFixed(2)} MB</span>
                         <span class="text-sm text-gray-500">${dateStr}</span>
+                        <a href="/download/${pkg.name}/${v.version}" class="flex items-center gap-1.5 border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-[#1a1a1a] hover:bg-gray-100 dark:hover:bg-[#252525] px-3 py-1.5 rounded-md text-xs font-semibold text-gray-700 dark:text-gray-300 transition-colors">
+                            <i data-lucide="download" class="w-3 h-3"></i> Download
+                        </a>
                         <div class="flex items-center gap-2 border border-gray-200 dark:border-gray-700 bg-white dark:bg-black px-3 py-1.5 rounded-md cursor-pointer hover:border-gray-400" onclick="navigator.clipboard.writeText('xpm install ${pkg.name}@${v.version}')">
                             <code class="text-xs font-mono text-gray-700 dark:text-gray-300">xpm install ${pkg.name}@${v.version}</code>
                             <i data-lucide="copy" class="w-3 h-3 text-gray-400"></i>

@@ -1,4 +1,4 @@
-module.exports = function getLoginView(error = null) {
+module.exports = function getLoginView(error = null, cliPort = null) {
     return `
         <style>
             /* Hide the standard layout navbar and footer for the dedicated auth view */
@@ -40,7 +40,7 @@ module.exports = function getLoginView(error = null) {
                 </div>
                 ` : ''}
 
-                <form action="/login" method="POST" class="space-y-5" id="loginForm">
+                <form action="/login${cliPort ? '?cli_port=' + encodeURIComponent(cliPort) : ''}" method="POST" class="space-y-5" id="loginForm">
                     <div>
                         <label for="email" class="block text-[13px] font-bold text-gray-900 dark:text-gray-100 mb-1.5">Email address</label>
                         <input id="email" name="email" type="email" required class="block w-full px-3 py-2 border border-gray-300 dark:border-gray-600 rounded-[3px] focus:outline-none focus:border-black focus:ring-1 focus:ring-black transition-shadow text-[14px]">
