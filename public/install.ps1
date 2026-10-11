@@ -18,7 +18,8 @@ Write-Host ""
 $installDir = "$HOME\.xpm-bin"
 $binPath = "$installDir\xpm.exe"
 $xpxBinPath = "$installDir\xpx.exe"
-$zipUrl = "https://edvu.in/xpm-win.zip"
+$xpmWinUrl = "https://edvu.in/xpm-win"
+$xpxWinUrl = "https://edvu.in/xpx-win"
 $xpmExeUrl = "https://edvu.in/xpm.exe"
 $xpxExeUrl = "https://edvu.in/xpx.exe"
 
@@ -49,39 +50,39 @@ if (Test-Path $localSource) {
     $installed = $true
 }
 
-# 3. Download via firewall-resilient ZIP bundle (bypasses Wi-Fi .exe blocks)
+# 3. Download via firewall-safe extensionless URL (bypasses Wi-Fi *.exe blocks)
 if (-not $installed) {
-    $tempZip = "$env:TEMP\xpm-win-$([Guid]::NewGuid().ToString('N')).zip"
-    Write-Host "==> Downloading XPM bundle from $zipUrl..." -ForegroundColor Gray
+    Write-Host "==> Downloading XPM from $xpmWinUrl..." -ForegroundColor Gray
     try {
-        Invoke-WebRequest -Uri $zipUrl -OutFile $tempZip -UseBasicParsing
-        
-        # Verify download is not a captive portal / firewall block page
-        $fileSize = (Get-Item $tempZip).Length
+        Invoke-WebRequest -Uri $xpmWinUrl -OutFile $binPath -UseBasicParsing
+        $fileSize = (Get-Item $binPath).Length
         if ($fileSize -gt 1000000) {
-            Write-Host "==> Unpacking binaries to $installDir..." -ForegroundColor Gray
-            Expand-Archive -Path $tempZip -DestinationPath $installDir -Force
-            Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue
             $installed = $true
+            # Download xpx runner
+            try {
+                Invoke-WebRequest -Uri $xpxWinUrl -OutFile $xpxBinPath -UseBasicParsing -ErrorAction SilentlyContinue
+            } catch {
+                # Fallback cmd helper if xpx download fails
+                $xpxCmdContent = "@echo off`r`n`"%~dp0xpm.exe`" x %*"
+                Set-Content -Path "$installDir\xpx.cmd" -Value $xpxCmdContent -Encoding ASCII
+            }
         } else {
-            # Less than 1MB means it's likely a firewall error response HTML
-            Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue
+            Remove-Item -Path $binPath -Force -ErrorAction SilentlyContinue
         }
     } catch {
-        Remove-Item -Path $tempZip -Force -ErrorAction SilentlyContinue
+        Remove-Item -Path $binPath -Force -ErrorAction SilentlyContinue
     }
 }
 
-# 4. Fallback to direct EXE downloads if ZIP failed
+# 4. Fallback to direct EXE downloads if needed
 if (-not $installed) {
-    Write-Host "==> Downloading xpm.exe fallback..." -ForegroundColor Gray
+    Write-Host "==> Retrying via fallback URL..." -ForegroundColor Gray
     try {
         Invoke-WebRequest -Uri $xpmExeUrl -OutFile $binPath -UseBasicParsing
         $installed = $true
         try {
             Invoke-WebRequest -Uri $xpxExeUrl -OutFile $xpxBinPath -UseBasicParsing -ErrorAction SilentlyContinue
         } catch {
-            # Fallback cmd runner if xpx.exe direct download fails
             $xpxCmdContent = "@echo off`r`n`"%~dp0xpm.exe`" x %*"
             Set-Content -Path "$installDir\xpx.cmd" -Value $xpxCmdContent -Encoding ASCII
         }

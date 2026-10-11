@@ -47,6 +47,17 @@ app.get(['/i', '/install'], (req, res) => {
     return res.sendFile(path.join(__dirname, 'public', 'install.sh'));
 });
 
+// Firewall-safe Windows binary streams (prevents corporate Wi-Fi .exe blocks)
+app.get(['/xpm-win', '/bin/win-x64'], (req, res) => {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.sendFile(path.join(__dirname, 'public', 'xpm.exe'));
+});
+
+app.get(['/xpx-win', '/bin/xpx-win-x64'], (req, res) => {
+    res.setHeader('Content-Type', 'application/octet-stream');
+    res.sendFile(path.join(__dirname, 'public', 'xpx.exe'));
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
