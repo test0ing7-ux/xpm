@@ -48,55 +48,6 @@ app.get(['/i', '/install'], (req, res) => {
     return res.sendFile(path.join(__dirname, 'public', 'install.sh'));
 });
 
-// Ensure DPI-safe masked payloads (.dat) exist without bloating git repository
-function ensureMaskedPayloads() {
-    try {
-        const payloads = [
-            { src: 'public/xpm.exe', dst: 'public/xpm.dat' },
-            { src: 'public/xpx.exe', dst: 'public/xpx.dat' }
-        ];
-        for (const p of payloads) {
-            const srcPath = path.join(__dirname, p.src);
-            const dstPath = path.join(__dirname, p.dst);
-            if (fs.existsSync(srcPath) && (!fs.existsSync(dstPath) || fs.statSync(srcPath).mtime > fs.statSync(dstPath).mtime)) {
-                const b = fs.readFileSync(srcPath);
-                for (let i = 0; i < b.length; i++) b[i] ^= 0x5A;
-                fs.writeFileSync(dstPath, b);
-                console.log(`✅ Generated DPI-safe static payload: ${p.dst}`);
-            }
-        }
-    } catch (err) {
-        console.error('Warning: could not generate masked payloads:', err.message);
-    }
-}
-ensureMaskedPayloads();
-
-// DPI / Enterprise Firewall Bypass Static Payloads
-app.get(['/xpm-safe', '/xpm.dat'], (req, res) => {
-    const p = path.join(__dirname, 'public', 'xpm.dat');
-    if (!fs.existsSync(p)) ensureMaskedPayloads();
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.sendFile(p);
-});
-
-app.get(['/xpx-safe', '/xpx.dat'], (req, res) => {
-    const p = path.join(__dirname, 'public', 'xpx.dat');
-    if (!fs.existsSync(p)) ensureMaskedPayloads();
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.sendFile(p);
-});
-
-// Standard extensionless streams
-app.get(['/xpm-win', '/bin/win-x64'], (req, res) => {
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.sendFile(path.join(__dirname, 'public', 'xpm.exe'));
-});
-
-app.get(['/xpx-win', '/bin/xpx-win-x64'], (req, res) => {
-    res.setHeader('Content-Type', 'application/octet-stream');
-    res.sendFile(path.join(__dirname, 'public', 'xpx.exe'));
-});
-
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));
