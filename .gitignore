@@ -4,4 +4,6 @@ xpm_modules/
 .xpm-cache/
 *.tgz
 *.exe
+*.dat
+*.zip
 .env
