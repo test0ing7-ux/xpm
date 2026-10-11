@@ -1,0 +1,24 @@
+{
+  "version": "1.0.0",
+  "description": "XPM Universal Native Package Manager",
+  "homepage": "https://edvu.in",
+  "license": "MIT",
+  "architecture": {
+    "64bit": {
+      "url": "https://edvu.in/xpm.exe",
+      "hash": "715FAF8177B61CFB9DECD471B3674ADA7392EA22606F5223F4210E1F74F6FDCC",
+      "bin": [
+        "xpm.exe",
+        [
+          "xpm.exe",
+          "xpx",
+          "x"
+        ]
+      ]
+    }
+  },
+  "checkver": {
+    "url": "https://edvu.in/health",
+    "regex": "OK"
+  }
+}

@@ -33,6 +33,13 @@ echo "==> Downloading XPM for $OS ($ARCH)..."
 curl -fsSL "$BINARY_URL" -o "$INSTALL_DIR/$BINARY_NAME"
 chmod +x "$INSTALL_DIR/$BINARY_NAME"
 
+# Create xpx runner helper (like npx)
+cat << 'EOF' > "$INSTALL_DIR/xpx"
+#!/usr/bin/env bash
+exec "$HOME/.xpm-bin/xpm" x "$@"
+EOF
+chmod +x "$INSTALL_DIR/xpx"
+
 # Add to PATH in shell profile if not present
 SHELL_PROFILE=""
 if [ -f "$HOME/.zshrc" ]; then

@@ -18,12 +18,28 @@ function getLandingView() {
                         <a href="/register" class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-3.5 text-base font-semibold rounded-full text-black dark:text-white bg-white dark:bg-[#242424] hover:bg-gray-200 transition-colors">
                             Start Publishing
                         </a>
-                        <div class="w-full sm:w-auto flex items-center px-6 py-3.5 bg-transparent border border-gray-700 rounded-full">
-                            <code class="text-sm font-mono text-gray-300 select-all">npm i -g xpm-cli</code>
-                            <button onclick="navigator.clipboard.writeText('npm i -g xpm-cli')" class="ml-4 text-gray-500 hover:text-white transition-colors">
+                        <a href="https://github.com/edvu" target="_blank" class="w-full sm:w-auto inline-flex items-center justify-center px-8 py-3.5 text-base font-semibold rounded-full text-gray-300 bg-black/40 border border-gray-800 hover:border-cyan-500/40 hover:text-white transition-colors">
+                            Documentation
+                        </a>
+                    </div>
+
+                    <!-- Multi-OS Native Installer Selector -->
+                    <div class="mt-8 max-w-xl mx-auto">
+                        <div class="flex justify-center space-x-2 mb-3 text-xs font-mono">
+                            <button type="button" onclick="setInstallTab('win')" id="tab-btn-win" class="px-3.5 py-1.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 font-semibold transition-all">Windows</button>
+                            <button type="button" onclick="setInstallTab('linux')" id="tab-btn-linux" class="px-3.5 py-1.5 rounded-full text-gray-400 hover:text-white border border-transparent transition-all">Linux (APT)</button>
+                            <button type="button" onclick="setInstallTab('mac')" id="tab-btn-mac" class="px-3.5 py-1.5 rounded-full text-gray-400 hover:text-white border border-transparent transition-all">macOS (Brew)</button>
+                            <button type="button" onclick="setInstallTab('sh')" id="tab-btn-sh" class="px-3.5 py-1.5 rounded-full text-gray-400 hover:text-white border border-transparent transition-all">cURL / Sh</button>
+                        </div>
+                        <div class="flex items-center px-5 py-3.5 bg-black/70 border border-gray-800 rounded-full shadow-lg shadow-cyan-500/5">
+                            <code id="install-cmd" class="text-sm font-mono text-cyan-300 select-all truncate flex-1 text-left">irm https://edvu.in/i | iex</code>
+                            <button type="button" onclick="copyInstallCmd()" class="ml-3 text-gray-400 hover:text-cyan-400 transition-colors p-1" title="Copy command">
                                 <i data-lucide="copy" class="w-4 h-4"></i>
                             </button>
                         </div>
+                        <p class="text-xs text-gray-500 mt-2 text-center" id="install-note">
+                            Sets environment PATH automatically. Standalone binary with zero dependencies.
+                        </p>
                     </div>
                 </div>
                 
@@ -52,6 +68,43 @@ function getLandingView() {
             </div>
             
             <script>
+            const installCmds = {
+                win: 'irm https://edvu.in/i | iex',
+                linux: 'curl -fsSL https://edvu.in/setup-apt.sh | sudo bash',
+                mac: 'brew install https://edvu.in/xpm.rb',
+                sh: 'curl -fsSL https://edvu.in/i | bash'
+            };
+            const installNotes = {
+                win: 'PowerShell / Winget • Sets user PATH automatically • Installs xpm.exe & xpx.exe',
+                linux: 'Debian / Ubuntu APT • Installs /usr/bin/xpm and /usr/bin/xpx via .deb',
+                mac: 'macOS Homebrew • Downloads standalone binary and links to PATH',
+                sh: 'POSIX Shell • Universal 1-liner with automatic profile and PATH update'
+            };
+            function setInstallTab(os) {
+                const cmdEl = document.getElementById('install-cmd');
+                const noteEl = document.getElementById('install-note');
+                if (cmdEl) cmdEl.innerText = installCmds[os];
+                if (noteEl) noteEl.innerText = installNotes[os];
+                ['win', 'linux', 'mac', 'sh'].forEach(k => {
+                    const btn = document.getElementById('tab-btn-' + k);
+                    if (btn) {
+                        if (k === os) {
+                            btn.className = 'px-3.5 py-1.5 rounded-full bg-cyan-500/20 text-cyan-400 border border-cyan-500/40 font-semibold transition-all';
+                        } else {
+                            btn.className = 'px-3.5 py-1.5 rounded-full text-gray-400 hover:text-white border border-transparent transition-all';
+                        }
+                    }
+                });
+            }
+            function copyInstallCmd() {
+                const cmd = document.getElementById('install-cmd').innerText;
+                navigator.clipboard.writeText(cmd);
+                const btn = event.currentTarget;
+                const originalHtml = btn.innerHTML;
+                btn.innerHTML = '<span class="text-xs text-green-400">Copied!</span>';
+                setTimeout(() => { btn.innerHTML = originalHtml; }, 2000);
+            }
+
             (function() {
                 const canvas = document.getElementById('particle-canvas');
                 const ctx = canvas.getContext('2d');

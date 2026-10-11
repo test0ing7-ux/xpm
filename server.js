@@ -33,6 +33,20 @@ app.use(cors());
 // --- HEALTH & PING ENDPOINTS (FOR UPTIME MONITORING) ---
 app.get('/health', (req, res) => res.status(200).send('OK'));
 app.get('/ping', (req, res) => res.status(200).send('PONG'));
+
+// --- SMART 1-LINE UNIVERSAL INSTALLER ENDPOINT ---
+// Usage:
+// Windows: irm edvu.in/i | iex
+// Linux/macOS: curl -fsSL edvu.in/i | bash
+app.get(['/i', '/install'], (req, res) => {
+    const ua = (req.headers['user-agent'] || '').toLowerCase();
+    const isWindows = ua.includes('powershell') || ua.includes('windows') || ua.includes('winhttp');
+    if (isWindows) {
+        return res.sendFile(path.join(__dirname, 'public', 'install.ps1'));
+    }
+    return res.sendFile(path.join(__dirname, 'public', 'install.sh'));
+});
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(express.static(path.join(__dirname, 'public')));

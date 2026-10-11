@@ -1,0 +1,31 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.singleton.1.6.0.schema.json
+PackageIdentifier: Edvu.XPM
+PackageVersion: 1.0.0
+PackageName: XPM
+Publisher: Edvu
+PublisherUrl: https://edvu.in
+PublisherSupportUrl: https://edvu.in
+Author: Edvu
+License: MIT
+LicenseUrl: https://edvu.in
+ShortDescription: XPM Universal Native Package Manager
+Description: Blazing fast universal native package manager with built-in passkey security, native package.json support, and on-the-fly xpx execution.
+Moniker: xpm
+Tags:
+  - xpm
+  - package-manager
+  - npm
+  - npx
+  - developer-tools
+Commands:
+  - xpm
+  - xpx
+Installers:
+  - Architecture: x64
+    InstallerType: portable
+    InstallerUrl: https://edvu.in/xpm.exe
+    InstallerSha256: 715FAF8177B61CFB9DECD471B3674ADA7392EA22606F5223F4210E1F74F6FDCC
+    Commands:
+      - xpm
+ManifestType: singleton
+ManifestVersion: 1.6.0
