@@ -58,9 +58,18 @@ program
 // --- xpm init ---
 program
     .command('init')
-    .description('Initialize a new xpm.json configuration file')
+    .description('Initialize package configuration (supports package.json or xpm.json)')
     .action(() => {
-        const xpmJsonPath = path.join(process.cwd(), 'xpm.json');
+        const currentDir = process.cwd();
+        const pkgJsonPath = path.join(currentDir, 'package.json');
+        const xpmJsonPath = path.join(currentDir, 'xpm.json');
+
+        if (fs.existsSync(pkgJsonPath)) {
+            console.log(chalk.green('✔ Detected existing package.json!'));
+            console.log(chalk.cyan('XPM automatically reads package.json—no separate xpm.json is needed.'));
+            return;
+        }
+
         if (fs.existsSync(xpmJsonPath)) {
             console.error(chalk.red('✖ xpm.json already exists in this directory.'));
             process.exit(1);
@@ -206,18 +215,27 @@ program
         }
 
         const currentDir = process.cwd();
+        const pkgJsonPath = path.join(currentDir, 'package.json');
         const xpmJsonPath = path.join(currentDir, 'xpm.json');
 
-        if (!fs.existsSync(xpmJsonPath)) {
-            console.error(chalk.red('✖ Missing xpm.json in current directory. Run ') + chalk.yellow('xpm init') + chalk.red(' first.'));
+        let configPath = null;
+        if (fs.existsSync(pkgJsonPath)) {
+            configPath = pkgJsonPath;
+        } else if (fs.existsSync(xpmJsonPath)) {
+            configPath = xpmJsonPath;
+        } else {
+            console.error(chalk.red('✖ Missing package.json or xpm.json in current directory. Run ') + chalk.yellow('xpm init') + chalk.red(' to create one.'));
             return process.exit(1);
         }
 
         let metadata;
         try {
-            metadata = JSON.parse(fs.readFileSync(xpmJsonPath, 'utf8'));
+            metadata = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+            if (metadata.xpm && typeof metadata.xpm === 'object') {
+                metadata = { ...metadata, ...metadata.xpm };
+            }
         } catch (e) {
-            console.error(chalk.red('✖ Invalid JSON syntax in xpm.json'));
+            console.error(chalk.red(`✖ Invalid JSON syntax in ${path.basename(configPath)}`));
             return process.exit(1);
         }
 
@@ -300,9 +318,11 @@ program
         });
     });
 
-// --- xpm install ---
+// --- xpm install (alias: i, add) ---
 program
     .command('install')
+    .alias('i')
+    .alias('add')
     .description('Install an executable package globally')
     .argument('<pkgName>', 'Name of the package (e.g., pkg or pkg@1.0.0)')
     .action(async (pkgNameStr) => {
@@ -376,6 +396,20 @@ program
         } catch (e) {
             console.error(chalk.red('✖ Error installing package:'), e.response?.data?.error || e.message);
         }
+    });
+
+// --- xpm exec / x (like npx) ---
+program
+    .command('exec')
+    .alias('x')
+    .description('Execute a package on the fly from the registry without permanent install (like npx)')
+    .argument('<pkgName>', 'Package name to execute (e.g., cowsay or pkg@1.0.0)')
+    .option('-y, --yes', 'Automatically confirm package download and run', true)
+    .allowUnknownOption(true)
+    .action(async (pkgNameStr, options, cmd) => {
+        const extraArgs = process.argv.slice(process.argv.indexOf(pkgNameStr) + 1);
+        const { executePackage } = require('./runner');
+        executePackage(pkgNameStr, extraArgs);
     });
 
 program.parse(process.argv);
